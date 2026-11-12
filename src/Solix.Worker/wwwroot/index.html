@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solix Load Follower</title>
+<style>
+/* Layout: status strip, four readouts, control panel beside the chart on wide screens */
+:root {
+  --bg: #eef2f0; --panel: #ffffff; --fg: #142019; --muted: #5b6b64; --line: #d5ddd9;
+  --import: #c2410c; --export: #0e7a55; --battery: #2563eb; --target: #7c3aed;
+  --live: #b91c1c; --live-soft: #fde8e8; --obs: #0e7a55; --obs-soft: #e0f2ea;
+  --ui: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --num: "Cascadia Mono", "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c1210; --panel: #141c19; --fg: #e3ebe7; --muted: #92a39c; --line: #26322d;
+    --import: #fb923c; --export: #34d399; --battery: #60a5fa; --target: #c4b5fd;
+    --live: #f87171; --live-soft: #3b1515; --obs: #34d399; --obs-soft: #11302a;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--ui); font-size: 15px; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 20px max(16px, env(safe-area-inset-left)) 40px; display: flex; flex-direction: column; gap: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+h1 { font-size: 1.3rem; margin: 0; letter-spacing: -0.01em; }
+.pill { font-family: var(--num); font-size: 0.78rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; letter-spacing: 0.06em; }
+.pill.obs { background: var(--obs-soft); color: var(--obs); }
+.pill.live { background: var(--live-soft); color: var(--live); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .pill.live { animation: none; } }
+.meta { color: var(--muted); font-size: 0.85rem; margin-left: auto; font-family: var(--num); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.tile .value { font-family: var(--num); font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.tile .unit { font-size: 0.95rem; font-weight: 400; color: var(--muted); margin-left: 4px; }
+.tile .sub { font-size: 0.82rem; color: var(--muted); }
+.soc-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 4px; }
+.soc-bar i { display: block; height: 100%; background: var(--battery); width: 0; transition: width 0.4s; }
+.main { display: grid; grid-template-columns: 320px 1fr; gap: 12px; }
+@media (max-width: 860px) { .main { grid-template-columns: 1fr; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.panel h2 { font-size: 0.95rem; margin: 0; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { font: inherit; padding: 10px; border: 0; background: transparent; color: var(--fg); cursor: pointer; font-weight: 600; }
+.seg button[aria-pressed="true"].obs { background: var(--obs-soft); color: var(--obs); }
+.seg button[aria-pressed="true"].live { background: var(--live-soft); color: var(--live); }
+.cap { display: flex; flex-direction: column; gap: 6px; }
+.cap-row { display: flex; justify-content: space-between; font-size: 0.88rem; }
+.cap-row b { font-family: var(--num); }
+input[type=range] { width: 100%; accent-color: var(--battery); }
+.switch-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.88rem; cursor: pointer; }
+.switch-row input { width: 18px; height: 18px; accent-color: var(--export); }
+#solarStart, #chargeCap { accent-color: var(--export); }
+.cap.off { opacity: 0.4; }
+.apply { font: inherit; font-weight: 600; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--fg); color: var(--bg); cursor: pointer; }
+.apply.danger { background: var(--live); border-color: var(--live); color: #fff; }
+.apply:disabled { opacity: 0.4; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--battery); outline-offset: 2px; }
+.warn { font-size: 0.85rem; background: var(--live-soft); color: var(--live); border-radius: 8px; padding: 10px 12px; }
+.facts { display: flex; flex-direction: column; gap: 8px; font-size: 0.86rem; }
+.facts div { display: flex; justify-content: space-between; gap: 10px; }
+.facts span:first-child { color: var(--muted); }
+.facts span:last-child { font-family: var(--num); text-align: right; overflow-wrap: anywhere; }
+.chart-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.8rem; color: var(--muted); }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+select { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); margin-left: auto; }
+.chart-box { position: relative; height: 340px; }
+canvas { width: 100%; height: 100%; display: block; }
+.err { color: var(--live); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Solix Load Follower</h1>
+    <span class="pill obs" id="modePill">OBSERVE</span>
+    <span class="meta" id="updated">waiting for first cycle…</span>
+  </header>
+
+  <div class="tiles">
+    <div class="tile">
+      <span class="label">Grid (Home Mini)</span>
+      <span class="value" id="grid">-<span class="unit">W</span></span>
+      <span class="sub" id="gridSub">no reading yet</span>
+    </div>
+    <div class="tile">
+      <span class="label">Battery output</span>
+      <span class="value" id="ac" style="color:var(--battery)">-<span class="unit">W</span></span>
+      <span class="sub" id="acSub">AC to the house</span>
+    </div>
+    <div class="tile">
+      <span class="label" id="targetLabel">Target</span>
+      <span class="value" id="target" style="color:var(--target)">-<span class="unit">W</span></span>
+      <span class="sub" id="reason">-</span>
+    </div>
+    <div class="tile">
+      <span class="label">State of charge</span>
+      <span class="value" id="soc">-<span class="unit">%</span></span>
+      <div class="soc-bar"><i id="socBar"></i></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="panel">
+      <h2>Control</h2>
+      <div class="seg" role="group" aria-label="Mode">
+        <button class="obs" id="btnObs" aria-pressed="true">Observe</button>
+        <button class="live" id="btnLive" aria-pressed="false">Live</button>
+      </div>
+      <div class="cap">
+        <div class="cap-row"><span>Max discharge cap</span><b id="capVal">300 W</b></div>
+        <input type="range" id="cap" min="0" max="800" step="50" value="300" aria-label="Max discharge cap in watts">
+      </div>
+      <label class="switch-row" for="solar">
+        <span>Charge from spare solar</span>
+        <input type="checkbox" id="solar" role="switch" checked>
+      </label>
+      <div class="cap" id="solarStartBox">
+        <div class="cap-row"><span>Start when exporting over</span><b id="solarStartVal">50 W</b></div>
+        <input type="range" id="solarStart" min="0" max="300" step="10" value="50" aria-label="Export level that starts solar charging, in watts">
+      </div>
+      <div class="cap" id="chargeCapBox">
+        <div class="cap-row"><span>Max charge cap</span><b id="chargeCapVal">800 W</b></div>
+        <input type="range" id="chargeCap" min="0" max="2300" step="50" value="800" aria-label="Max solar charge in watts">
+      </div>
+      <div class="warn" id="liveWarn" hidden>Live puts the battery into third-party mode and writes setpoints every cycle. Its app schedule won't run while Live is on. Switching back to Observe, or stopping the service, hands it back to the app mode it was in.</div>
+      <button class="apply" id="apply" disabled>No changes</button>
+
+      <h2>Checks</h2>
+      <div class="facts">
+        <div><span>Grid reading</span><span id="age">-</span></div>
+        <div><span>Export seen as negative</span><span id="exportSeen">not yet</span></div>
+        <div><span>EV smart slot</span><span id="evSlot">not checked yet</span></div>
+        <div><span>Octopus event</span><span id="octoEvent">not checked yet</span></div>
+        <div><span>Battery mode register</span><span id="bmode">-</span></div>
+        <div><span>Last write</span><span id="written">-</span></div>
+        <div><span>Last error</span><span id="error">none</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="chart-head">
+        <h2>History</h2>
+        <div class="legend">
+          <span><i style="background:var(--import)"></i>Grid</span>
+          <span><i style="background:var(--battery)"></i>Battery output</span>
+          <span><i style="background:var(--target)"></i>Target</span>
+        </div>
+        <select id="range" aria-label="History range">
+          <option value="60">1 hour</option>
+          <option value="180" selected>3 hours</option>
+          <option value="720">12 hours</option>
+          <option value="1440">24 hours</option>
+        </select>
+      </div>
+      <div class="chart-box"><canvas id="chart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const KEYS = ['mode', 'maxW', 'solarCharge', 'startExportW', 'maxChargeW'];
+let server = { mode: 'Observe', maxW: 300, solarCharge: true, startExportW: 50, maxChargeW: 800 };
+let draft = { ...server };
+// Missing fields keep their previous value so an older service never shows "undefined".
+const pick = s => Object.fromEntries(KEYS.map(k => [k, s[k] ?? server[k]]));
+const same = (a, b) => KEYS.every(k => a[k] === b[k]);
+let history = [];
+
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const fmt = w => w == null ? '-' : Math.round(w).toLocaleString('en-GB');
+
+function setValue(el, text, unit) { el.innerHTML = `${text}<span class="unit">${unit}</span>`; }
+
+function renderDraft() {
+  $('btnObs').setAttribute('aria-pressed', draft.mode === 'Observe');
+  $('btnLive').setAttribute('aria-pressed', draft.mode === 'Live');
+  $('capVal').textContent = draft.maxW + ' W';
+  $('cap').value = draft.maxW;
+  $('solar').checked = draft.solarCharge;
+  $('solarStart').value = draft.startExportW;
+  $('solarStart').disabled = !draft.solarCharge;
+  $('solarStartVal').textContent = draft.startExportW + ' W';
+  $('solarStartBox').classList.toggle('off', !draft.solarCharge);
+  $('chargeCap').value = draft.maxChargeW;
+  $('chargeCap').disabled = !draft.solarCharge;
+  $('chargeCapVal').textContent = draft.maxChargeW + ' W';
+  $('chargeCapBox').classList.toggle('off', !draft.solarCharge);
+  const changed = !same(draft, server);
+  const goingLive = draft.mode === 'Live' && server.mode !== 'Live';
+  $('liveWarn').hidden = !goingLive;
+  const apply = $('apply');
+  apply.disabled = !changed;
+  apply.classList.toggle('danger', goingLive);
+  apply.textContent = !changed ? 'No changes' : goingLive ? `Go live at ${draft.maxW} W` : draft.mode === 'Observe' && server.mode === 'Live' ? 'Stop and hand back to app' : 'Apply changes';
+}
+
+$('btnObs').onclick = () => { draft.mode = 'Observe'; renderDraft(); };
+$('btnLive').onclick = () => { draft.mode = 'Live'; renderDraft(); };
+$('cap').oninput = e => { draft.maxW = +e.target.value; renderDraft(); };
+$('solar').onchange = e => { draft.solarCharge = e.target.checked; renderDraft(); };
+$('solarStart').oninput = e => { draft.startExportW = +e.target.value; renderDraft(); };
+$('chargeCap').oninput = e => { draft.maxChargeW = +e.target.value; renderDraft(); };
+$('apply').onclick = async () => {
+  $('apply').disabled = true;
+  const r = await fetch('/api/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft) });
+  if (r.ok) { server = pick(await r.json()); draft = { ...server }; }
+  renderDraft();
+  setTimeout(refreshStatus, 1500);
+};
+$('range').onchange = refreshHistory;
+
+async function refreshStatus() {
+  try {
+    const s = await (await fetch('/api/status')).json();
+    const wasSynced = same(draft, server);
+    server = pick(s);
+    if (wasSynced) draft = { ...server };
+    renderDraft();
+
+    const live = s.mode === 'Live';
+    $('modePill').textContent = live ? `LIVE · ${s.maxW} W CAP` : 'OBSERVE · NOTHING WRITTEN';
+    $('modePill').className = 'pill ' + (live ? 'live' : 'obs');
+    $('targetLabel').textContent = live ? 'Target' : 'Would set (observe)';
+
+    renderEv(s.ev);
+    renderEvents(s.events);
+
+    const l = s.latest;
+    if (!l) return;
+    const now = new Date(s.now);
+    $('updated').textContent = 'last cycle ' + Math.round((now - new Date(l.at)) / 1000) + 's ago';
+
+    if (l.grid) {
+      const d = l.grid.demandW;
+      setValue($('grid'), fmt(Math.abs(d)), 'W');
+      $('grid').style.color = d < 0 ? css('--export') : css('--import');
+      $('gridSub').textContent = d < 0 ? 'exporting' : d === 0 ? 'zero, could be hidden export' : 'importing';
+      // Age at fetch is what the controller acted on; it only drifts because fetches are a minute apart.
+      const fetchedAge = Math.round((new Date(l.at) - new Date(l.grid.readAt)) / 1000);
+      const age = Math.round((now - new Date(l.grid.readAt)) / 1000);
+      const nextIn = Math.max(0, (s.pollSeconds || 60) - Math.round((now - new Date(l.at)) / 1000));
+      $('age').textContent = `${fetchedAge} s when fetched · next in ${nextIn} s` + (age > 120 ? ' (stale)' : '');
+      $('age').className = age > 120 ? 'err' : '';
+    }
+    if (l.battery) {
+      setValue($('ac'), fmt(Math.abs(l.battery.acOutputW)), 'W');
+      const cells = l.battery.batteryPowerW;
+      $('acSub').textContent = (cells < 0 ? 'Charging' : cells > 0 ? 'Discharging' : 'Idle') + ' · cells ' + fmt(Math.abs(cells)) + ' W';
+      $('ac').style.color = cells < 0 ? css('--export') : css('--battery');
+      setValue($('soc'), l.battery.socPercent, '%');
+      $('socBar').style.width = l.battery.socPercent + '%';
+      $('bmode').textContent = l.battery.mode + (l.battery.mode === 3 ? ' (third-party)' : '');
+    }
+    const t = l.decision.targetW;
+    setValue($('target'), (t < 0 ? 'charge ' : t > 0 ? 'discharge ' : '') + fmt(Math.abs(t)), 'W');
+    $('target').style.color = t < 0 ? css('--export') : css('--target');
+    $('reason').textContent = l.decision.reason;
+    $('written').textContent = l.written ? 'written to battery' : 'not written (observe)';
+    $('error').textContent = l.error || 'none';
+    $('error').className = l.error ? 'err' : '';
+  } catch { $('updated').textContent = 'service not responding'; }
+}
+
+function renderEv(ev) {
+  const el = $('evSlot');
+  const hm = d => new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  el.className = '';
+  el.style.color = '';
+  if (!ev) { el.textContent = 'not checked yet'; return; }
+  if (ev.error === 'disabled') { el.textContent = 'off'; return; }
+  if (ev.inSlot) {
+    const now = ev.slots.find(x => new Date(x.start) <= new Date() && new Date() < new Date(x.end));
+    el.textContent = 'now' + (now ? ', until ' + hm(now.end) : '');
+    el.style.color = css('--export');
+    return;
+  }
+  if (ev.error) { el.textContent = ev.error; el.className = 'err'; return; }
+  const next = ev.slots[0];
+  el.textContent = next ? `next ${hm(next.start)}-${hm(next.end)}` : 'none planned';
+}
+
+function renderEvents(ev) {
+  const el = $('octoEvent');
+  const label = e => e.type === 'WEEKEND_HAPPY_HOUR' ? 'Happy Hour' : e.kind === 'PowerDown' ? 'Power Down' : 'Power Up';
+  const when = d => new Date(d).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const hm = d => new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  el.className = '';
+  el.style.color = '';
+  if (!ev) { el.textContent = 'not checked yet'; return; }
+  if (ev.error === 'disabled') { el.textContent = 'off'; return; }
+  const now = new Date();
+  const current = ev.upcoming.find(e => new Date(e.start) <= now && now < new Date(e.end));
+  if (ev.active && current) {
+    el.textContent = `${label(current)} now, until ${hm(current.end)}`;
+    el.style.color = ev.active === 'PowerDown' ? css('--target') : css('--export');
+    return;
+  }
+  if (ev.error) { el.textContent = ev.error; el.className = 'err'; return; }
+  const next = ev.upcoming[0];
+  el.textContent = next ? `next ${label(next)} ${when(next.start)}-${hm(next.end)}` : 'none booked';
+}
+
+async function refreshHistory() {
+  try {
+    history = await (await fetch('/api/history?minutes=' + $('range').value)).json();
+    const neg = history.filter(p => p.demandW != null && p.demandW < 0);
+    $('exportSeen').textContent = neg.length ? `yes, down to ${fmt(Math.min(...neg.map(p => p.demandW)))} W` : 'not yet';
+    drawChart();
+  } catch { }
+}
+
+function drawChart() {
+  const canvas = $('chart');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const g = canvas.getContext('2d');
+  g.scale(dpr, dpr);
+  g.clearRect(0, 0, w, h);
+
+  const pad = { l: 52, r: 12, t: 10, b: 26 };
+  const minutes = +$('range').value;
+  const t1 = Date.now(), t0 = t1 - minutes * 60000;
+  const vals = history.flatMap(p => [p.demandW, p.acOutputW, p.targetW]).filter(v => v != null);
+  let lo = Math.min(-200, ...vals), hi = Math.max(800, ...vals);
+  const step = (hi - lo) > 2000 ? 500 : 200;
+  lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  const x = t => pad.l + (t - t0) / (t1 - t0) * (w - pad.l - pad.r);
+  const y = v => pad.t + (hi - v) / (hi - lo) * (h - pad.t - pad.b);
+
+  g.font = '11px ' + css('--num');
+  g.fillStyle = css('--muted');
+  g.strokeStyle = css('--line');
+  g.lineWidth = 1;
+  for (let v = lo; v <= hi; v += step) {
+    g.beginPath(); g.moveTo(pad.l, y(v)); g.lineTo(w - pad.r, y(v)); g.stroke();
+    g.textAlign = 'right'; g.fillText(v, pad.l - 6, y(v) + 4);
+  }
+  g.fillStyle = css('--export') + '18';
+  g.fillRect(pad.l, y(0), w - pad.l - pad.r, y(lo) - y(0));
+  g.strokeStyle = css('--muted'); g.beginPath(); g.moveTo(pad.l, y(0)); g.lineTo(w - pad.r, y(0)); g.stroke();
+
+  g.fillStyle = css('--muted'); g.textAlign = 'center';
+  const tickMins = minutes <= 60 ? 15 : minutes <= 180 ? 30 : minutes <= 720 ? 120 : 240;
+  const first = Math.ceil(t0 / (tickMins * 60000)) * tickMins * 60000;
+  for (let t = first; t <= t1; t += tickMins * 60000) {
+    g.fillText(new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }), x(t), h - 8);
+  }
+
+  const pts = history.map(p => ({ ...p, t: new Date(p.at).getTime() })).filter(p => p.t >= t0);
+  const line = (key, color, stepped, dash) => {
+    g.strokeStyle = color; g.lineWidth = 2; g.setLineDash(dash || []);
+    g.beginPath(); let started = false, prevY = null;
+    for (const p of pts) {
+      const v = p[key];
+      if (v == null) { started = false; continue; }
+      const px = x(p.t), py = y(v);
+      if (!started) { g.moveTo(px, py); started = true; }
+      else { if (stepped) g.lineTo(px, prevY); g.lineTo(px, py); }
+      prevY = py;
+    }
+    g.stroke(); g.setLineDash([]);
+    // Dots keep sparse data visible; a lone sample draws no line.
+    g.fillStyle = color;
+    for (const p of pts) {
+      if (p[key] == null) continue;
+      g.beginPath(); g.arc(x(p.t), y(p[key]), pts.length > 200 ? 1.2 : 2.5, 0, Math.PI * 2); g.fill();
+    }
+  };
+  line('demandW', css('--import'));
+  line('acOutputW', css('--battery'));
+  line('targetW', css('--target'), true, [5, 4]);
+
+  if (!pts.length) {
+    g.fillStyle = css('--muted'); g.textAlign = 'center'; g.font = '13px ' + css('--ui');
+    g.fillText('No samples in this range yet. The first one arrives within a minute of starting.', w / 2, h / 2);
+  }
+}
+
+window.addEventListener('resize', drawChart);
+renderDraft();
+refreshStatus(); refreshHistory();
+setInterval(refreshStatus, 5000);
+setInterval(refreshHistory, 30000);
+</script>
+</body>
+</html>

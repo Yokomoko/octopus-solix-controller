@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Solix.Core/Solix.Core.csproj" />
+    <Project Path="src/Solix.Worker/Solix.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Solix.Tests/Solix.Tests.csproj" />
+  </Folder>
+</Solution>
