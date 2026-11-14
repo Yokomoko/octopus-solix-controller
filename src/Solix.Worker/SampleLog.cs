@@ -75,7 +75,13 @@ public sealed class SampleLog : IDisposable
         lock (_gate)
         {
             using var cmd = _db.CreateCommand();
-            cmd.CommandText = "SELECT at, demand_w, ac_output_w, target_w, written, soc FROM samples WHERE at >= $from ORDER BY at";
+            // The AC register is unsigned; the battery register gives the sign, so charging plots below zero.
+            cmd.CommandText = """
+                SELECT at, demand_w,
+                       CASE WHEN battery_w < 0 THEN -ABS(ac_output_w) ELSE ABS(ac_output_w) END,
+                       target_w, written, soc
+                FROM samples WHERE at >= $from ORDER BY at
+                """;
             cmd.Parameters.AddWithValue("$from", from.UtcDateTime.ToString("O"));
             using var reader = cmd.ExecuteReader();
             var rows = new List<HistoryPoint>();
@@ -88,6 +94,30 @@ public sealed class SampleLog : IDisposable
                     reader.GetInt32(3),
                     reader.GetInt32(4) == 1,
                     reader.IsDBNull(5) ? null : reader.GetInt32(5)));
+            }
+            return rows;
+        }
+    }
+
+    /// <summary>Logged battery output and grid readings since <paramref name="from"/>, for working out what the battery was worth.</summary>
+    public IReadOnlyList<BatterySample> BatterySamplesSince(DateTimeOffset from)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = """
+                SELECT at, demand_w, ac_output_w, battery_w FROM samples
+                WHERE at >= $from AND demand_w IS NOT NULL AND ac_output_w IS NOT NULL AND battery_w IS NOT NULL
+                ORDER BY at
+                """;
+            cmd.Parameters.AddWithValue("$from", from.UtcDateTime.ToString("O"));
+            using var reader = cmd.ExecuteReader();
+            var rows = new List<BatterySample>();
+            while (reader.Read())
+            {
+                var ac = Math.Abs(reader.GetInt32(2));
+                var signed = reader.GetInt32(3) < 0 ? -ac : ac;
+                rows.Add(new BatterySample(DateTimeOffset.Parse(reader.GetString(0)), signed, reader.GetInt32(1)));
             }
             return rows;
         }

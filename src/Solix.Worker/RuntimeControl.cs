@@ -48,6 +48,7 @@ public sealed class RuntimeControl
     private Snapshot? _latest;
     private EvStatus? _ev;
     private EventStatus? _events;
+    private UsageStatus? _usage;
 
     public RuntimeControl(IOptions<ControllerOptions> options, IConfiguration config, ILogger<RuntimeControl> logger)
     {
@@ -81,6 +82,12 @@ public sealed class RuntimeControl
     {
         get { lock (_gate) return _events; }
         set { lock (_gate) _events = value; }
+    }
+
+    public UsageStatus? Usage
+    {
+        get { lock (_gate) return _usage; }
+        set { lock (_gate) _usage = value; }
     }
 
     public ControllerOptions Apply(ControllerOptions configured)

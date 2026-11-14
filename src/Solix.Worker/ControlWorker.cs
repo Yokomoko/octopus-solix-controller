@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting.Systemd;
 using Microsoft.Extensions.Options;
 using Microsoft.Win32;
 using Solix.Core;
@@ -14,6 +15,7 @@ public sealed class ControlWorker(
     RuntimeControl runtime,
     IOptionsMonitor<ControllerOptions> options,
     IConfiguration config,
+    ISystemdNotifier systemd,
     ILogger<ControlWorker> logger) : BackgroundService
 {
     private readonly SemaphoreSlim _wake = new(0);
@@ -22,17 +24,20 @@ public sealed class ControlWorker(
     private DateTimeOffset _nextPoll = DateTimeOffset.MinValue;
     private ControlMode? _lastMode;
     private volatile bool _recompute;
+    private DateTimeOffset _pausedUntil = DateTimeOffset.MinValue;
     private bool _appInControl;
     private IReadOnlyList<EvSlot> _evSlots = [];
     private DateTimeOffset? _evFetchedAt;
     private DateTimeOffset _nextEvPoll = DateTimeOffset.MinValue;
     private string? _evError;
+    private readonly EvSlotGate _evGate = new();
     private DateTimeOffset _rateLimitedUntil = DateTimeOffset.MinValue;
     private readonly List<(DateTimeOffset At, int OutputW)> _outputLog = [];
     private IReadOnlyList<OctopusEvent> _events = [];
     private DateTimeOffset? _eventsFetchedAt;
     private DateTimeOffset _nextEventsPoll = DateTimeOffset.MinValue;
     private string? _eventsError;
+    private readonly KeepAwake _keepAwake = new(logger);
 
     // How long a good slot list is trusted after fetches start failing.
     private static readonly TimeSpan EvSlotsTrustedFor = TimeSpan.FromMinutes(15);
@@ -42,7 +47,11 @@ public sealed class ControlWorker(
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        if (OperatingSystem.IsWindows()) SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        if (OperatingSystem.IsWindows())
+        {
+            SystemEvents.PowerModeChanged += OnPowerModeChanged;
+            SystemEvents.SessionEnding += OnSessionEnding;
+        }
         runtime.Changed += OnRuntimeChanged;
 
         try { battery.LogCapabilities(); }
@@ -53,8 +62,18 @@ public sealed class ControlWorker(
 
         while (!ct.IsCancellationRequested)
         {
+            // Tells systemd the loop is alive; with WatchdogSec set, a hang gets the service restarted.
+            if (systemd.IsEnabled) systemd.Notify(new ServiceState("WATCHDOG=1"));
+
             var opts = runtime.Apply(options.CurrentValue);
             AnnounceMode(opts);
+            _keepAwake.Hold(opts.Mode == ControlMode.Live);
+
+            if (DateTimeOffset.UtcNow < _pausedUntil)
+            {
+                await _wake.WaitAsync(TimeSpan.FromSeconds(5), ct);
+                continue;
+            }
 
             if (DateTimeOffset.UtcNow >= _nextPoll)
             {
@@ -102,7 +121,7 @@ public sealed class ControlWorker(
         if (fetchOctopus && opts.EvSlot.Enabled && now >= _nextEvPoll)
             await RefreshEvSlotsAsync(opts, now, ct);
 
-        var inEvSlot = InEvSlot(opts, now);
+        var inEvSlot = InEvSlot(opts, now, EvSlotGate.HouseDemandW(opts, now, _grid, state, OutputAt(_grid?.ReadAt)));
 
         if (fetchOctopus && opts.Events.Enabled && now >= _nextEventsPoll)
             await RefreshEventsAsync(opts, now, ct);
@@ -113,7 +132,7 @@ public sealed class ControlWorker(
         var appReason = AppReason(opts, now, fixedCharge: (inEvSlot && octopusEvent != OctopusEventKind.PowerDown) || octopusEvent == OctopusEventKind.PowerUp);
         var decision = appReason is not null
             ? new Decision(0, $"{appReason}, app schedule in charge")
-            : ControlLaw.Decide(opts, now, _grid, state, inEvSlot, octopusEvent, OutputAt(_grid?.ReadAt));
+            : ControlLaw.Decide(opts, now, _grid, state, inEvSlot, octopusEvent, OutputAt(_grid?.ReadAt), evSlotsUnknown: !EvSlotsTrusted(now));
         var written = false;
 
         if (opts.Mode == ControlMode.Live && appReason is not null)
@@ -183,7 +202,9 @@ public sealed class ControlWorker(
     {
         try
         {
-            _grid = await octopus.GetLatestAsync(ct) ?? _grid;
+            // Never let an older reading replace a newer one.
+            var latest = await octopus.GetLatestAsync(ct);
+            if (latest is not null && (_grid is null || latest.ReadAt >= _grid.ReadAt)) _grid = latest;
         }
         catch (OctopusRateLimitedException ex)
         {
@@ -192,7 +213,7 @@ public sealed class ControlWorker(
             errors.Add("octopus rate limited");
             logger.LogWarning("Octopus rate limit hit, backing off 5 minutes: {Message}", ex.Message);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             errors.Add($"octopus: {ex.Message}");
             logger.LogWarning(ex, "Octopus read failed");
@@ -223,7 +244,7 @@ public sealed class ControlWorker(
             _eventsFetchedAt = now;
             _eventsError = null;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             _eventsError = ex.Message;
             logger.LogWarning("Octopus event check failed: {Message}", ex.Message);
@@ -255,12 +276,14 @@ public sealed class ControlWorker(
             _evFetchedAt = now;
             _evError = null;
         }
-        catch (OctopusRateLimitedException)
+        catch (OctopusRateLimitedException ex)
         {
-            _nextEvPoll = now.AddMinutes(15);
-            _evError = "rate limited";
+            // These limits reset each minute, so a short wait is enough; the last good list stays trusted meanwhile.
+            _nextEvPoll = now.AddMinutes(2);
+            _evError = "rate limited, retrying in 2 min";
+            logger.LogWarning("EV slot check rate limited: {Message}", ex.Message);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             _evError = ex.Message;
             logger.LogWarning("EV slot check failed: {Message}", ex.Message);
@@ -268,10 +291,13 @@ public sealed class ControlWorker(
     }
 
     // A failed fetch must never count as a cheap slot, so an old list stops being trusted after a while.
-    private bool InEvSlot(ControllerOptions opts, DateTimeOffset now)
+    private bool EvSlotsTrusted(DateTimeOffset now) => _evFetchedAt is { } at && now - at <= EvSlotsTrustedFor;
+
+    private bool InEvSlot(ControllerOptions opts, DateTimeOffset now, int? houseDemandW)
     {
-        var trusted = _evFetchedAt is { } at && now - at <= EvSlotsTrustedFor;
-        var inSlot = opts.EvSlot.Enabled && trusted && _evSlots.Any(s => s.Start <= now && now < s.End);
+        var trusted = EvSlotsTrusted(now);
+        var planned = opts.EvSlot.Enabled && trusted && _evSlots.Any(s => s.Start <= now && now < s.End);
+        var inSlot = opts.EvSlot.Enabled && _evGate.IsCheap(now, planned, houseDemandW, opts.EvSlot.CarChargingW, opts.EvSlot.CarStillChargingW);
         runtime.Ev = new EvStatus(
             _evSlots.Where(s => s.End > now).OrderBy(s => s.Start).ToList(),
             _evFetchedAt,
@@ -322,6 +348,14 @@ public sealed class ControlWorker(
         if (e.Mode == PowerModes.Resume) _nextPoll = DateTimeOffset.MinValue;
     }
 
+    // Windows can kill the process during a restart before StopAsync runs, so hand back as soon as it starts.
+    // Writes pause for a while so the loop doesn't take control back; a cancelled shutdown resumes after that.
+    private void OnSessionEnding(object sender, SessionEndingEventArgs e)
+    {
+        _pausedUntil = DateTimeOffset.UtcNow.AddMinutes(3);
+        _appInControl = HandBack("Windows shutting down or restarting");
+    }
+
     // Saved to disk so a crashed run can still be handed back on the next start.
     private void RememberMode(int mode)
     {
@@ -357,9 +391,14 @@ public sealed class ControlWorker(
 
     public override async Task StopAsync(CancellationToken ct)
     {
-        if (OperatingSystem.IsWindows()) SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        if (OperatingSystem.IsWindows())
+        {
+            SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+            SystemEvents.SessionEnding -= OnSessionEnding;
+        }
         runtime.Changed -= OnRuntimeChanged;
         await base.StopAsync(ct);
         HandBack("shutting down");
+        _keepAwake.Dispose();
     }
 }

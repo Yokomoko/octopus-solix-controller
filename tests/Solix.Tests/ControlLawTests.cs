@@ -12,6 +12,7 @@ public sealed class ControlLawTests
         MaxW = maxW,
         ImportBufferW = bufferW,
         MaxStepUpW = stepW,
+        Gain = 1,
         StaleAfterSeconds = 120,
         SocFloorPercent = 10,
     };
@@ -71,6 +72,18 @@ public sealed class ControlLawTests
     }
 
     [TestMethod]
+    public void Ev_slot_uses_the_charge_cap_unless_set()
+    {
+        var options = Options();
+        options.SolarCharge.MaxChargeW = 1200;
+
+        Assert.AreEqual(-1200, ControlLaw.Decide(options, Now, Grid(7500), Battery(0), inEvSlot: true).TargetW);
+
+        options.EvSlot.ChargeW = 600;
+        Assert.AreEqual(-600, ControlLaw.Decide(options, Now, Grid(7500), Battery(0), inEvSlot: true).TargetW);
+    }
+
+    [TestMethod]
     public void Ev_slot_ignored_when_disabled()
     {
         var options = Options();
@@ -79,6 +92,25 @@ public sealed class ControlLawTests
         var decision = ControlLaw.Decide(options, Now, Grid(3000), Battery(300), inEvSlot: true);
 
         Assert.AreEqual(600, decision.TargetW);
+    }
+
+    [TestMethod]
+    [DataRow(true, 7500, 0, DisplayName = "car charging with stale slots: holds")]
+    [DataRow(true, 2500, 600, DisplayName = "stale slots, house-sized import: follows load")]
+    [DataRow(false, 7500, 600, DisplayName = "fresh list with no slot: follows load")]
+    public void Stale_slot_list_does_not_discharge_into_the_car(bool unknown, int demandW, int expected)
+    {
+        var decision = ControlLaw.Decide(Options(), Now, Grid(demandW), Battery(300), evSlotsUnknown: unknown);
+
+        Assert.AreEqual(expected, decision.TargetW);
+    }
+
+    [TestMethod]
+    public void Power_down_beats_stale_slot_hold()
+    {
+        var decision = ControlLaw.Decide(Options(), Now, Grid(7500), Battery(300), octopusEvent: OctopusEventKind.PowerDown, evSlotsUnknown: true);
+
+        Assert.AreEqual(800, decision.TargetW);
     }
 
     [TestMethod]
@@ -139,6 +171,48 @@ public sealed class ControlLawTests
 
         Assert.AreEqual(-800, ControlLaw.Decide(options, nightLocal, null, Battery(0, soc: 59)).TargetW);
         Assert.AreEqual(0, ControlLaw.Decide(options, nightLocal, null, Battery(0, soc: 60)).TargetW);
+    }
+
+    [TestMethod]
+    public void Damped_increase_closes_part_of_the_gap()
+    {
+        var options = Options();
+        options.Gain = 0.6;
+
+        // Wants 210 W from 0 W: closes 60% of the gap.
+        var decision = ControlLaw.Decide(options, Now, Grid(250), Battery(0), outputAtReadingW: 0);
+
+        Assert.AreEqual(126, decision.TargetW);
+    }
+
+    [TestMethod]
+    public void Decrease_is_not_damped()
+    {
+        var options = Options();
+        options.Gain = 0.6;
+
+        var decision = ControlLaw.Decide(options, Now, Grid(-237), Battery(300));
+
+        Assert.AreEqual(23, decision.TargetW);
+    }
+
+    [TestMethod]
+    public void Charging_to_discharging_passes_through_zero()
+    {
+        var charging = new BatteryState(150, -150, 50, 3);
+
+        // The lagged reading shows import, but the battery is still charging: stop first.
+        var decision = ControlLaw.Decide(Options(), Now, Grid(400), charging, outputAtReadingW: 0);
+
+        Assert.AreEqual(0, decision.TargetW);
+    }
+
+    [TestMethod]
+    public void Discharging_to_charging_passes_through_zero()
+    {
+        var decision = ControlLaw.Decide(Options(), Now, Grid(-400), Battery(150), outputAtReadingW: 0);
+
+        Assert.AreEqual(0, decision.TargetW);
     }
 
     [TestMethod]

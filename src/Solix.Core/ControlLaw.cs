@@ -13,7 +13,8 @@ public static class ControlLaw
         BatteryState? battery,
         bool inEvSlot = false,
         OctopusEventKind? octopusEvent = null,
-        int? outputAtReadingW = null)
+        int? outputAtReadingW = null,
+        bool evSlotsUnknown = false)
     {
         var cheap = options.CheapRate;
         if (cheap.Enabled && !cheap.HandBackToApp && cheap.Contains(TimeOnly.FromDateTime(now.LocalDateTime)))
@@ -39,7 +40,7 @@ public static class ControlLaw
         {
             if (battery.SocPercent >= options.EvSlot.UpToSocPercent)
                 return new Decision(0, $"EV smart slot, battery charged to {battery.SocPercent}%");
-            return new Decision(-Math.Max(0, options.EvSlot.ChargeW), "EV smart slot, charging at cheap rate");
+            return new Decision(-Math.Max(0, options.EvSlot.ChargeW ?? options.SolarCharge.MaxChargeW), "EV smart slot, charging at cheap rate");
         }
 
         if (grid is null)
@@ -59,8 +60,20 @@ public static class ControlLaw
         if (powerDown)
             return PowerDown(options, battery, balance);
 
+        // Car-sized import with no trustworthy slot list is probably a cheap slot, so don't empty the battery into the car.
+        if (evSlotsUnknown && options.EvSlot.Enabled && balance >= options.EvSlot.CarChargingW)
+            return new Decision(0, "car charging, slot list out of date");
+
+        // Spare charge before the cheap window goes out to the grid: aim the meter at an export instead of a small import.
+        var exportW = EveningExport.ExtraW(options, TimeOnly.FromDateTime(now.LocalDateTime), battery.SocPercent, balance);
+        if (exportW > 0)
+        {
+            var decision = Discharge(options, battery, current, balance, -exportW);
+            return decision with { Reason = decision.Reason.Replace("following load", $"exporting spare ({exportW} W)") };
+        }
+
         if (balance > options.ImportBufferW)
-            return Discharge(options, battery, current, balance);
+            return Discharge(options, battery, current, balance, options.ImportBufferW);
 
         var solar = options.SolarCharge;
         if (solar.Enabled && balance <= -solar.StartExportW)
@@ -78,18 +91,25 @@ public static class ControlLaw
         return new Decision(Math.Clamp(balance, 0, options.MaxW), "Power Down, covering all import");
     }
 
-    private static Decision Discharge(ControllerOptions options, BatteryState battery, int current, int balance)
+    private static Decision Discharge(ControllerOptions options, BatteryState battery, int current, int balance, int gridTargetW)
     {
         if (battery.SocPercent <= options.SocFloorPercent)
             return new Decision(0, $"SOC at floor ({battery.SocPercent}%)");
 
-        var wanted = Math.Min(balance - options.ImportBufferW, options.MaxW);
+        // One lagged reading shouldn't swing it straight from charging to discharging.
+        if (current < 0)
+            return new Decision(0, "stopping charge before discharging");
 
-        // Increases are rate limited; decreases apply at once so export is cut quickly.
-        var limit = Math.Max(current, 0) + options.MaxStepUpW;
-        return wanted > limit
+        var wanted = Math.Min(balance - gridTargetW, options.MaxW);
+        if (wanted <= current)
+            return new Decision(wanted, "following load");
+
+        // Increases close only part of the gap and are rate limited; decreases above apply at once.
+        var damped = current + (int)Math.Round((wanted - current) * Math.Clamp(options.Gain, 0.1, 1));
+        var limit = current + options.MaxStepUpW;
+        return damped > limit
             ? new Decision(limit, "following load (step limited)")
-            : new Decision(wanted, "following load");
+            : new Decision(damped, "following load");
     }
 
     private static Decision Charge(ControllerOptions options, BatteryState battery, int current, int balance)
@@ -98,13 +118,20 @@ public static class ControlLaw
         if (battery.SocPercent >= solar.SocCeilingPercent)
             return new Decision(0, $"exporting but battery full ({battery.SocPercent}%)");
 
+        if (current > 0)
+            return new Decision(0, "stopping discharge before charging");
+
         var wanted = Math.Max(balance + solar.TargetExportW, -solar.MaxChargeW);
         if (wanted >= 0)
             return new Decision(0, "balanced");
+        if (wanted >= current)
+            return new Decision(wanted, "charging from solar");
 
-        var limit = Math.Min(current, 0) - options.MaxStepUpW;
-        return wanted < limit
+        // Same as discharging: charge increases are damped, reductions apply at once.
+        var damped = current + (int)Math.Round((wanted - current) * Math.Clamp(options.Gain, 0.1, 1));
+        var limit = current - options.MaxStepUpW;
+        return damped < limit
             ? new Decision(limit, "charging from solar (step limited)")
-            : new Decision(wanted, "charging from solar");
+            : new Decision(damped, "charging from solar");
     }
 }

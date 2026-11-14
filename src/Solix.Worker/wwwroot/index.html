@@ -72,6 +72,17 @@ select { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid 
 .chart-box { position: relative; height: 340px; }
 canvas { width: 100%; height: 100%; display: block; }
 .err { color: var(--live); }
+.today-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.today-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stat .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.stat .num { font-family: var(--num); font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat .sub { font-size: 0.8rem; color: var(--muted); font-family: var(--num); }
+.meta-line { font-size: 0.8rem; color: var(--muted); }
+.power { display: flex; flex-direction: column; gap: 8px; }
+.power[hidden] { display: none; }
+.stat.split { border-left: 1px solid var(--line); padding-left: 12px; }
+@media (max-width: 600px) { .stat.split { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: 10px; } }
 </style>
 </head>
 <body>
@@ -106,6 +117,42 @@ canvas { width: 100%; height: 100%; display: block; }
     </div>
   </div>
 
+  <div class="panel today">
+    <div class="today-head">
+      <h2>Today</h2>
+      <span class="meta-line" id="tariff">loading tariff…</span>
+    </div>
+    <div class="today-grid">
+      <div class="stat">
+        <span class="label">Imported</span>
+        <span class="num" id="impTotal">-</span>
+        <span class="sub" id="impSplit">-</span>
+      </div>
+      <div class="stat">
+        <span class="label">Exported</span>
+        <span class="num" id="expTotal">-</span>
+        <span class="sub" id="expEarned">-</span>
+      </div>
+      <div class="stat">
+        <span class="label">Cost so far</span>
+        <span class="num" id="costTotal">-</span>
+        <span class="sub" id="costSplit">-</span>
+      </div>
+      <div class="stat split">
+        <span class="label">Battery saved</span>
+        <span class="num" id="savedNet" style="color:var(--export)">-</span>
+        <span class="sub" id="savedSplit">-</span>
+      </div>
+      <div class="stat">
+        <span class="label">Wasted to grid</span>
+        <span class="num" id="wasted">-</span>
+        <span class="sub" id="wastedSub">-</span>
+      </div>
+    </div>
+    <span class="meta-line" id="usageAsOf">first update within a minute of starting</span>
+    <span class="meta-line">Imported, exported and cost cover the whole day from your meter. Battery saved and wasted only cover time this app was running, because the meter can't see what the battery did.</span>
+  </div>
+
   <div class="main">
     <div class="panel">
       <h2>Control</h2>
@@ -126,7 +173,7 @@ canvas { width: 100%; height: 100%; display: block; }
         <input type="range" id="solarStart" min="0" max="300" step="10" value="50" aria-label="Export level that starts solar charging, in watts">
       </div>
       <div class="cap" id="chargeCapBox">
-        <div class="cap-row"><span>Max charge cap</span><b id="chargeCapVal">800 W</b></div>
+        <div class="cap-row"><span>Max charge cap (solar, EV slots, Power Ups)</span><b id="chargeCapVal">800 W</b></div>
         <input type="range" id="chargeCap" min="0" max="2300" step="50" value="800" aria-label="Max solar charge in watts">
       </div>
       <div class="warn" id="liveWarn" hidden>Live puts the battery into third-party mode and writes setpoints every cycle. Its app schedule won't run while Live is on. Switching back to Observe, or stopping the service, hands it back to the app mode it was in.</div>
@@ -141,6 +188,11 @@ canvas { width: 100%; height: 100%; display: block; }
         <div><span>Battery mode register</span><span id="bmode">-</span></div>
         <div><span>Last write</span><span id="written">-</span></div>
         <div><span>Last error</span><span id="error">none</span></div>
+      </div>
+
+      <div id="powerBox" class="power" hidden>
+        <button class="apply" id="shutdown">Hand back and shut down</button>
+        <span class="meta-line" id="shutdownMsg">Use this before switching the Pi off at the wall, so the battery goes back to its app schedule.</span>
       </div>
     </div>
 
@@ -217,6 +269,31 @@ $('apply').onclick = async () => {
 };
 $('range').onchange = refreshHistory;
 
+let shutdownArmed = null;
+$('shutdown').onclick = async () => {
+  const btn = $('shutdown');
+  if (!shutdownArmed) {
+    btn.textContent = 'Tap again to shut down';
+    btn.classList.add('danger');
+    shutdownArmed = setTimeout(() => { shutdownArmed = null; btn.textContent = 'Hand back and shut down'; btn.classList.remove('danger'); }, 5000);
+    return;
+  }
+  clearTimeout(shutdownArmed);
+  btn.disabled = true;
+  btn.textContent = 'Shutting down…';
+  try {
+    const r = await fetch('/api/shutdown', { method: 'POST' });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    $('shutdownMsg').textContent = 'Handing back and shutting down. Wait about 30 seconds, until the green light on the Pi stops flickering, then switch it off.';
+  } catch (e) {
+    $('shutdownMsg').textContent = 'Shutdown failed: ' + e.message;
+    btn.disabled = false;
+    btn.textContent = 'Hand back and shut down';
+    btn.classList.remove('danger');
+    shutdownArmed = null;
+  }
+};
+
 async function refreshStatus() {
   try {
     const s = await (await fetch('/api/status')).json();
@@ -225,6 +302,7 @@ async function refreshStatus() {
     if (wasSynced) draft = { ...server };
     renderDraft();
 
+    $('powerBox').hidden = !s.canShutDown;
     const live = s.mode === 'Live';
     $('modePill').textContent = live ? `LIVE · ${s.maxW} W CAP` : 'OBSERVE · NOTHING WRITTEN';
     $('modePill').className = 'pill ' + (live ? 'live' : 'obs');
@@ -232,6 +310,7 @@ async function refreshStatus() {
 
     renderEv(s.ev);
     renderEvents(s.events);
+    renderUsage(s.usage);
 
     const l = s.latest;
     if (!l) return;
@@ -285,6 +364,44 @@ function renderEv(ev) {
   if (ev.error) { el.textContent = ev.error; el.className = 'err'; return; }
   const next = ev.slots[0];
   el.textContent = next ? `next ${hm(next.start)}-${hm(next.end)}` : 'none planned';
+}
+
+function renderUsage(u) {
+  if (!u) return;
+  const kwh = v => v.toFixed(2) + ' kWh';
+  const pounds = p => '£' + (p / 100).toFixed(2);
+  const r = u.rates;
+  if (r) {
+    $('tariff').textContent = `${r.name} · peak ${r.peakP.toFixed(2)}p · off-peak ${r.offPeakP.toFixed(2)}p · standing ${r.standingP.toFixed(2)}p/day` +
+      (r.exportP > 0 ? ` · export ${r.exportP.toFixed(2)}p` : ' · no export tariff yet');
+  }
+  const t = u.today;
+  if (t) {
+    $('impTotal').textContent = kwh(t.importPeakKwh + t.importOffPeakKwh + t.importFreeKwh);
+    $('impSplit').textContent = `peak ${t.importPeakKwh.toFixed(2)} · off-peak ${t.importOffPeakKwh.toFixed(2)}` + (t.importFreeKwh > 0 ? ` · free ${t.importFreeKwh.toFixed(2)}` : '');
+    $('expTotal').textContent = kwh(t.exportKwh);
+    $('expEarned').textContent = t.exportEarnedP > 0 ? `earned ${pounds(t.exportEarnedP)}` : 'not paid yet';
+    $('costTotal').textContent = pounds(t.totalP);
+    $('costSplit').textContent = `energy ${pounds(t.importCostP)} + standing ${pounds(t.standingP)}` + (t.exportEarnedP > 0 ? ` − export ${pounds(t.exportEarnedP)}` : '');
+  }
+  const b = u.battery;
+  if (b) {
+    $('savedNet').textContent = pounds(b.netSavedP);
+    $('savedNet').style.color = b.netSavedP >= 0 ? css('--export') : css('--import');
+    $('savedSplit').textContent = `${b.displacedKwh.toFixed(2)} kWh used instead of the grid` +
+      (b.solarChargedKwh > 0.005 ? ` · ${b.solarChargedKwh.toFixed(2)} kWh charged from solar` : '') +
+      ` · only the ${b.coveredHours.toFixed(1)} h the app was running`;
+    $('savedNet').title = `Each kWh used saves (rate at the time − off-peak rate it was charged at). ` +
+      `Shifting: ${pounds(b.shiftSavedP)}, solar charging: ${pounds(b.solarSavedP)}`;
+    $('wasted').textContent = pounds(b.wastedP);
+    $('wasted').style.color = b.wastedKwh > 0.005 ? css('--import') : '';
+    $('wastedSub').textContent = b.wastedKwh > 0.005
+      ? `${b.wastedKwh.toFixed(2)} kWh discharged while exporting`
+      : 'none, battery only covered the house';
+  }
+  const asOf = u.asOf ? 'from your meter, updated ' + new Date(u.asOf).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ', refreshes every 10 min' : '';
+  $('usageAsOf').textContent = u.error ? `last refresh failed: ${u.error}` + (asOf ? ` (showing ${asOf})` : '') : asOf;
+  $('usageAsOf').className = 'meta-line' + (u.error ? ' err' : '');
 }
 
 function renderEvents(ev) {

@@ -74,6 +74,90 @@ public sealed class OctopusClient(HttpClient http, IOptions<OctopusOptions> opti
             .ToList();
     }
 
+    /// <summary>
+    /// Current import tariff, plus the export rate if there's an export agreement. The rates don't carry
+    /// times, so peak is the highest unit rate and off-peak the lowest.
+    /// </summary>
+    public async Task<TariffRates> GetTariffAsync(CancellationToken ct)
+    {
+        var data = await QueryAsync("""
+            query($acc:String!){ account(accountNumber:$acc){ electricityAgreements(active:true){ meterPoint{ direction } tariff {
+              ... on StandardTariff { displayName standingCharge unitRate }
+              ... on DayNightTariff { displayName standingCharge dayRate nightRate }
+              ... on ThreeRateTariff { displayName standingCharge dayRate nightRate offPeakRate }
+              ... on HalfHourlyTariff { displayName standingCharge unitRates { value } }
+              ... on PrepayTariff { displayName standingCharge unitRate }
+            } } } }
+            """, new JsonObject { ["acc"] = _options.AccountNumber }, ct);
+
+        var agreements = data["account"]?["electricityAgreements"]?.AsArray().Where(a => a is not null).ToList() ?? [];
+        static IEnumerable<double> Rates(JsonNode tariff) =>
+            new[] { tariff["unitRate"], tariff["dayRate"], tariff["nightRate"], tariff["offPeakRate"] }
+                .Concat(tariff["unitRates"]?.AsArray().Select(r => r?["value"]) ?? [])
+                .Where(n => n is not null)
+                .Select(n => ToDouble(n!));
+
+        var import = agreements.FirstOrDefault(a => a!["meterPoint"]?["direction"]?.ToString() != "EXPORT")?["tariff"]
+            ?? throw new InvalidOperationException("No active import tariff on the account.");
+        var importRates = Rates(import).ToList();
+        if (importRates.Count == 0) throw new InvalidOperationException("Import tariff has no unit rates.");
+
+        var export = agreements.FirstOrDefault(a => a!["meterPoint"]?["direction"]?.ToString() == "EXPORT")?["tariff"];
+        var exportRate = export is null ? 0 : Rates(export).DefaultIfEmpty(0).Max();
+
+        return new TariffRates(
+            import["displayName"]?.ToString() ?? "Octopus tariff",
+            importRates.Max(),
+            importRates.Min(),
+            exportRate,
+            import["standingCharge"] is { } s ? ToDouble(s) : 0);
+    }
+
+    /// <summary>Half-hourly import and export from the Home Mini. Export comes as a running total, so it's differenced here.</summary>
+    public async Task<IReadOnlyList<HalfHour>> GetHalfHoursAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
+    {
+        var deviceId = await GetDeviceIdAsync(ct);
+
+        // Start half an hour early so the first half-hour has a previous export total to difference against.
+        var data = await QueryAsync(
+            "query($id:String!,$s:DateTime!,$e:DateTime!){ smartMeterTelemetry(deviceId:$id, grouping:HALF_HOURLY, start:$s, end:$e){ readAt consumptionDelta export } }",
+            new JsonObject { ["id"] = deviceId, ["s"] = from.AddMinutes(-30).ToString("o"), ["e"] = to.ToString("o") }, ct);
+
+        var rows = (data["smartMeterTelemetry"]?.AsArray() ?? [])
+            .Where(r => r?["readAt"] is not null)
+            .Select(r => (
+                At: DateTimeOffset.Parse(r!["readAt"]!.GetValue<string>(), CultureInfo.InvariantCulture),
+                Import: r["consumptionDelta"] is { } c ? ToDouble(c) : 0,
+                ExportTotal: r["export"] is { } e ? ToDouble(e) : (double?)null))
+            .OrderBy(r => r.At)
+            .ToList();
+
+        var result = new List<HalfHour>();
+        for (var i = 1; i < rows.Count; i++)
+        {
+            if (rows[i].At < from) continue;
+            var exported = rows[i].ExportTotal is { } now && rows[i - 1].ExportTotal is { } before ? Math.Max(0, now - before) : 0;
+            result.Add(new HalfHour(rows[i].At, rows[i].Import, exported));
+        }
+        return result;
+    }
+
+    /// <summary>EV smart-charge slots Octopus has already run, which are billed at the off-peak rate.</summary>
+    public async Task<IReadOnlyList<TimeRange>> GetCompletedDispatchesAsync(CancellationToken ct)
+    {
+        var data = await QueryAsync(
+            "query($acc:String!){ completedDispatches(accountNumber:$acc){ start end meta { source } } }",
+            new JsonObject { ["acc"] = _options.AccountNumber }, ct);
+
+        return (data["completedDispatches"]?.AsArray() ?? [])
+            .Where(r => r?["start"] is not null && r["end"] is not null)
+            .Where(r => r!["meta"]?["source"]?.ToString()?.Contains("bump", StringComparison.OrdinalIgnoreCase) != true)
+            .Select(r => new TimeRange(
+                DateTimeOffset.Parse(r!["start"]!.GetValue<string>(), CultureInfo.InvariantCulture),
+                DateTimeOffset.Parse(r["end"]!.GetValue<string>(), CultureInfo.InvariantCulture)))
+            .ToList();
+    }
+
     /// <summary>Power Ups, Happy Hours and Power Downs the account has joined. Throws on failure so callers never invent an event.</summary>
     public async Task<IReadOnlyList<OctopusEvent>> GetJoinedEventsAsync(CancellationToken ct)
     {
