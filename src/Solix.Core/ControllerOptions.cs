@@ -18,16 +18,23 @@ public sealed class ControllerOptions
     public int StaleAfterSeconds { get; set; } = 120;
     public int ImportBufferW { get; set; } = 15;
     public int MaxW { get; set; } = 300;
+
+    /// <summary>The most the app will ever ask the battery to output. 800 W is the plug-in limit; only raise it once hardwired.</summary>
+    public int HardMaxW { get; set; } = 800;
     public int MaxStepUpW { get; set; } = 300;
 
     /// <summary>Share of the gap closed per cycle when increasing. Below 1 stops lagged readings causing overshoot.</summary>
     public double Gain { get; set; } = 0.6;
     public int SocFloorPercent { get; set; } = 5;
+
+    /// <summary>Usable battery capacity, used to turn SOC into energy.</summary>
+    public int BatteryCapacityWh { get; set; } = 5000;
     public CheapRateOptions CheapRate { get; set; } = new();
     public SolarChargeOptions SolarCharge { get; set; } = new();
     public EvSlotOptions EvSlot { get; set; } = new();
     public OctopusEventOptions Events { get; set; } = new();
     public EveningExportOptions EveningExport { get; set; } = new();
+    public SpareOptions Spare { get; set; } = new();
 
     public ControllerOptions With(ControlMode mode, int maxW)
     {
@@ -72,10 +79,13 @@ public sealed class EvSlotOptions
     public int PollMinutes { get; set; } = 1;
 
     /// <summary>House demand at or above this counts as the car charging: a planned slot only counts as cheap once it's seen.</summary>
-    public int CarChargingW { get; set; } = 3500;
+    public int CarChargingW { get; set; } = 6000;
 
     /// <summary>Lower threshold that keeps a slot counting once the car has been seen in it, for a car tapering near full.</summary>
     public int CarStillChargingW { get; set; } = 1500;
+
+    /// <summary>Holds the battery at 0 W while the car charges outside a known slot, rather than emptying it into the car.</summary>
+    public bool HoldUnconfirmedCar { get; set; } = true;
 }
 
 /// <summary>Acts on joined Octopus Power Ups, Happy Hours and Power Downs.</summary>
@@ -97,11 +107,30 @@ public sealed class EveningExportOptions
     /// <summary>Exports stop at this SOC; normal load following carries on down to SocFloorPercent.</summary>
     public int FloorPercent { get; set; } = 10;
 
-    /// <summary>Usable battery capacity, used to turn SOC into energy.</summary>
-    public int CapacityWh { get; set; } = 5000;
-
     /// <summary>Exports smaller than this aren't worth the cycling.</summary>
     public int MinExportW { get; set; } = 100;
+}
+
+/// <summary>
+/// When the battery clearly has more than the house will need before the cheap rate, aims for a tiny export instead of a
+/// tiny import: a stray watt imported costs the peak rate, one exported only the overnight rate it was charged at.
+/// </summary>
+public sealed class SpareOptions
+{
+    public bool Enabled { get; set; } = true;
+    public int ExportTargetW { get; set; } = 5;
+
+    /// <summary>Charge below this SOC isn't counted as available.</summary>
+    public int FloorPercent { get; set; } = 10;
+
+    /// <summary>Kept back on top of the expected need, for an unusually busy evening.</summary>
+    public int MarginWh { get; set; } = 500;
+
+    /// <summary>Days of logged use the expected need is taken from (the busiest of them).</summary>
+    public int HistoryDays { get; set; } = 7;
+
+    /// <summary>House load at or above this is the car and left out of the need. Above cooking, below a 7 kW charger.</summary>
+    public int CarW { get; set; } = 6000;
 }
 
 /// <summary>Soaks up solar export by charging the battery instead of sending it to the grid.</summary>
@@ -113,8 +142,12 @@ public sealed class SolarChargeOptions
     public int StartExportW { get; set; } = 50;
 
     /// <summary>Export left over while charging, so a cloud doesn't pull charge from the grid.</summary>
-    public int TargetExportW { get; set; } = 20;
+    public int TargetExportW { get; set; } = 5;
 
     public int MaxChargeW { get; set; } = 800;
+
+    /// <summary>The battery ignores charge requests below about this, so smaller ones are rounded up to it.</summary>
+    public int MinChargeW { get; set; } = 75;
+
     public int SocCeilingPercent { get; set; } = 100;
 }

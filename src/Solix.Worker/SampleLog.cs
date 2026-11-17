@@ -123,5 +123,20 @@ public sealed class SampleLog : IDisposable
         }
     }
 
+    /// <summary>Logged battery levels since <paramref name="from"/>, oldest first.</summary>
+    public IReadOnlyList<(DateTimeOffset At, int Soc)> SocSince(DateTimeOffset from)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = "SELECT at, soc FROM samples WHERE at >= $from AND soc IS NOT NULL ORDER BY at";
+            cmd.Parameters.AddWithValue("$from", from.UtcDateTime.ToString("O"));
+            using var reader = cmd.ExecuteReader();
+            var rows = new List<(DateTimeOffset, int)>();
+            while (reader.Read()) rows.Add((DateTimeOffset.Parse(reader.GetString(0)), reader.GetInt32(1)));
+            return rows;
+        }
+    }
+
     public void Dispose() => _db.Dispose();
 }

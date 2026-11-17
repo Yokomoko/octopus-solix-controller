@@ -14,7 +14,8 @@ public sealed class EveningExportTests
         StaleAfterSeconds = 120,
         SocFloorPercent = 5,
         CheapRate = new CheapRateOptions { Enabled = true, Start = new(23, 30), End = new(5, 30) },
-        EveningExport = new EveningExportOptions { Enabled = enabled, Start = new(21, 0), FloorPercent = 10, CapacityWh = 5000, MinExportW = 100 },
+        BatteryCapacityWh = 5000,
+        EveningExport = new EveningExportOptions { Enabled = enabled, Start = new(21, 0), FloorPercent = 10, MinExportW = 100 },
     };
 
     [TestMethod]
@@ -45,7 +46,7 @@ public sealed class EveningExportTests
 
         var decision = ControlLaw.Decide(Options(), now, grid, new BatteryState(200, 200, 50, 3));
 
-        Assert.AreEqual(500, decision.TargetW, "800 W wanted, step limited from 200 W");
+        Assert.AreEqual(800, decision.TargetW, "far more wanted than the cap, so straight to it");
         StringAssert.Contains(decision.Reason, "exporting spare");
     }
 

@@ -49,12 +49,15 @@ app.MapGet("/api/status", (RuntimeControl runtime, Microsoft.Extensions.Options.
     {
         s.Mode, s.MaxW, s.SolarCharge, s.StartExportW, s.MaxChargeW,
         pollSeconds = options.CurrentValue.PollSeconds,
-        hardMaxW = RuntimeControl.HardMaxW,
+        hardMaxW = runtime.HardMaxW,
         now = DateTimeOffset.UtcNow,
         latest = runtime.Latest,
         ev = runtime.Ev,
         events = runtime.Events,
         usage = runtime.Usage,
+        spare = runtime.Spare,
+        day = runtime.Day,
+        cheapRateEnd = options.CurrentValue.CheapRate.End.ToString("HH:mm"),
         canShutDown = OperatingSystem.IsLinux(),
     };
 });

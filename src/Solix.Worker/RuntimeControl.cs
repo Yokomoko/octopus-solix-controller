@@ -30,8 +30,6 @@ public sealed record RuntimeSettings(ControlMode Mode, int MaxW, bool SolarCharg
 /// </summary>
 public sealed class RuntimeControl
 {
-    public const int HardMaxW = 800;
-
     // Charging isn't bound by the 800 W plug-in output cap.
     public const int HardMaxChargeW = 2300;
 
@@ -49,17 +47,24 @@ public sealed class RuntimeControl
     private EvStatus? _ev;
     private EventStatus? _events;
     private UsageStatus? _usage;
+    private SpareEstimate? _spare;
+    private DayProfile? _day;
+    private readonly int _hardMaxW;
 
     public RuntimeControl(IOptions<ControllerOptions> options, IConfiguration config, ILogger<RuntimeControl> logger)
     {
         _logger = logger;
         _file = Path.Combine(SampleLog.DataDirectory(config), "dashboard-settings.json");
         var o = options.Value;
+        _hardMaxW = Math.Max(0, o.HardMaxW);
         var fromConfig = new RuntimeSettings(o.Mode, o.MaxW, o.SolarCharge.Enabled, o.SolarCharge.StartExportW, o.SolarCharge.MaxChargeW);
         _settings = Clamp(Load() ?? fromConfig);
     }
 
     public event Action? Changed;
+
+    /// <summary>Upper limit for the discharge cap, from config; read at start-up.</summary>
+    public int HardMaxW => _hardMaxW;
 
     public RuntimeSettings Current
     {
@@ -90,6 +95,18 @@ public sealed class RuntimeControl
         set { lock (_gate) _usage = value; }
     }
 
+    public SpareEstimate? Spare
+    {
+        get { lock (_gate) return _spare; }
+        set { lock (_gate) _spare = value; }
+    }
+
+    public DayProfile? Day
+    {
+        get { lock (_gate) return _day; }
+        set { lock (_gate) _day = value; }
+    }
+
     public ControllerOptions Apply(ControllerOptions configured)
     {
         var s = Current;
@@ -101,6 +118,7 @@ public sealed class RuntimeControl
             StartExportW = s.StartExportW,
             TargetExportW = solar.TargetExportW,
             MaxChargeW = s.MaxChargeW,
+            MinChargeW = solar.MinChargeW,
             SocCeilingPercent = solar.SocCeilingPercent,
         };
         return copy;
@@ -142,10 +160,10 @@ public sealed class RuntimeControl
         }
     }
 
-    private static RuntimeSettings Clamp(RuntimeSettings s) =>
+    private RuntimeSettings Clamp(RuntimeSettings s) =>
         s with
         {
-            MaxW = Math.Clamp(s.MaxW, 0, HardMaxW),
+            MaxW = Math.Clamp(s.MaxW, 0, _hardMaxW),
             StartExportW = Math.Clamp(s.StartExportW, 0, 500),
             MaxChargeW = Math.Clamp(s.MaxChargeW, 0, HardMaxChargeW),
         };

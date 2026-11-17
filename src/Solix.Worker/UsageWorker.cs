@@ -20,6 +20,7 @@ public sealed class UsageWorker(
 {
     private static readonly TimeSpan Refresh = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan TariffRefresh = TimeSpan.FromHours(6);
+    private static readonly TimeSpan PendingFor = TimeSpan.FromHours(2);
 
     private TariffRates? _rates;
     private DateTimeOffset _ratesFetchedAt = DateTimeOffset.MinValue;
@@ -61,11 +62,15 @@ public sealed class UsageWorker(
                     .Where(e => e.Kind == OctopusEventKind.PowerUp)
                     .Select(e => new TimeRange(e.Start, e.End)).ToList(), "Power Ups");
 
-            var window = options.CurrentValue.CheapRate;
+            var opts = options.CurrentValue;
+            var window = opts.CheapRate;
             IReadOnlyList<TimeRange> allEv = [.. evSlots, .. planned];
-            var today = DayCost.Calculate(halfHours, _rates, window, allEv, events);
-            var batteryValue = BatteryValue.Calculate(
-                log.BatterySamplesSince(midnight), _rates, start => DayCost.Band(start, window, allEv, events));
+            var samples = log.BatterySamplesSince(midnight);
+            // Octopus can confirm a slot after the car has charged in it, so give it a while before calling it peak.
+            var pending = opts.EvSlot.Enabled ? DayCost.CarHalfHours(samples, opts.EvSlot.CarChargingW, now, PendingFor) : null;
+            var carWh = CarCharging.WhByHalfHour(samples, opts.Spare.CarW, opts.EvSlot.CarStillChargingW);
+            var today = DayCost.Calculate(halfHours, _rates, window, allEv, events, pending, carWh);
+            var batteryValue = BatteryValue.Calculate(samples, _rates, start => DayCost.Band(start, window, allEv, events, pending));
 
             runtime.Usage = new UsageStatus(_rates, today, batteryValue, now, null);
         }

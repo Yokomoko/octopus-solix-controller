@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Solix Load Follower</title>
 <style>
-/* Layout: status strip, four readouts, control panel beside the chart on wide screens */
 :root {
   --bg: #eef2f0; --panel: #ffffff; --fg: #142019; --muted: #5b6b64; --line: #d5ddd9;
   --import: #c2410c; --export: #0e7a55; --battery: #2563eb; --target: #7c3aed;
+  --offpeak: #0e7490; --free: #7c3aed;
   --live: #b91c1c; --live-soft: #fde8e8; --obs: #0e7a55; --obs-soft: #e0f2ea;
   --ui: "Segoe UI", system-ui, -apple-system, sans-serif;
   --num: "Cascadia Mono", "JetBrains Mono", ui-monospace, Consolas, monospace;
@@ -17,72 +17,119 @@
   :root {
     --bg: #0c1210; --panel: #141c19; --fg: #e3ebe7; --muted: #92a39c; --line: #26322d;
     --import: #fb923c; --export: #34d399; --battery: #60a5fa; --target: #c4b5fd;
+    --offpeak: #22d3ee; --free: #c4b5fd;
     --live: #f87171; --live-soft: #3b1515; --obs: #34d399; --obs-soft: #11302a;
     color-scheme: dark;
   }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--ui); font-size: 15px; }
-.wrap { max-width: 1180px; margin: 0 auto; padding: 20px max(16px, env(safe-area-inset-left)) 40px; display: flex; flex-direction: column; gap: 16px; }
-header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
-h1 { font-size: 1.3rem; margin: 0; letter-spacing: -0.01em; }
-.pill { font-family: var(--num); font-size: 0.78rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; letter-spacing: 0.06em; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+h1 { font-size: 1.25rem; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 0.95rem; margin: 0; }
+.pill { font-family: var(--num); font-size: 0.75rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; letter-spacing: 0.06em; }
 .pill.obs { background: var(--obs-soft); color: var(--obs); }
-.pill.live { background: var(--live-soft); color: var(--live); animation: pulse 2s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity: 0.55; } }
-@media (prefers-reduced-motion: reduce) { .pill.live { animation: none; } }
-.meta { color: var(--muted); font-size: 0.85rem; margin-left: auto; font-family: var(--num); }
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.tile .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-.tile .value { font-family: var(--num); font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
-.tile .unit { font-size: 0.95rem; font-weight: 400; color: var(--muted); margin-left: 4px; }
-.tile .sub { font-size: 0.82rem; color: var(--muted); }
-.soc-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 4px; }
-.soc-bar i { display: block; height: 100%; background: var(--battery); width: 0; transition: width 0.4s; }
-.main { display: grid; grid-template-columns: 320px 1fr; gap: 12px; }
-@media (max-width: 860px) { .main { grid-template-columns: 1fr; } }
+.pill.live { background: var(--live-soft); color: var(--live); }
+.meta { color: var(--muted); font-size: 0.82rem; margin-left: auto; font-family: var(--num); }
+.muted { color: var(--muted); }
+.err { color: var(--live); }
+
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.panel h2 { font-size: 0.95rem; margin: 0; }
+.label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.big { font-family: var(--num); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.unit { font-size: 0.55em; font-weight: 400; color: var(--muted); margin-left: 3px; }
+.sub { font-size: 0.8rem; color: var(--muted); }
+
+/* Live readouts */
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile .big { font-size: 1.9rem; }
+.tile .doing { font-size: 1.05rem; font-weight: 600; line-height: 1.3; min-height: 2.6em; }
+.soc-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 6px; }
+.soc-bar i { display: block; height: 100%; background: var(--battery); width: 0; transition: width 0.4s; }
+
+/* Today */
+.today-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.today-head .sub { margin-left: auto; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.stat .big { font-size: 1.5rem; }
+.bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--line); margin-top: 4px; }
+.bar i { display: block; height: 100%; }
+.keys { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 0.78rem; color: var(--muted); font-family: var(--num); }
+.keys span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; background: var(--c); }
+.keys span.key-striped::before { background: repeating-linear-gradient(135deg, var(--c) 0 2px, transparent 2px 4px); outline: 1px solid var(--c); outline-offset: -1px; }
+.chip { align-self: flex-start; font-size: 0.78rem; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); }
+/* Pending is probably off-peak but not confirmed, so it's off-peak with stripes. */
+.striped { background: repeating-linear-gradient(135deg, var(--offpeak) 0 3px, transparent 3px 6px) !important; }
+details { font-size: 0.82rem; color: var(--muted); }
+details summary { cursor: pointer; width: fit-content; }
+details ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+
+/* Control and status */
+.main { display: grid; grid-template-columns: 320px 1fr; gap: 12px; align-items: start; }
+.tonight-body { display: grid; grid-template-columns: 200px 1fr; gap: 16px; align-items: center; }
+@media (max-width: 600px) { .tonight-body { grid-template-columns: 1fr; } }
+@media (max-width: 860px) { .main { grid-template-columns: 1fr; } }
+.side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.seg button { font: inherit; padding: 10px; border: 0; background: transparent; color: var(--fg); cursor: pointer; font-weight: 600; }
+.seg button { font: inherit; padding: 9px; border: 0; background: transparent; color: var(--fg); cursor: pointer; font-weight: 600; }
 .seg button[aria-pressed="true"].obs { background: var(--obs-soft); color: var(--obs); }
 .seg button[aria-pressed="true"].live { background: var(--live-soft); color: var(--live); }
-.cap { display: flex; flex-direction: column; gap: 6px; }
-.cap-row { display: flex; justify-content: space-between; font-size: 0.88rem; }
-.cap-row b { font-family: var(--num); }
+.slider { display: flex; flex-direction: column; gap: 4px; }
+.slider-row { display: flex; justify-content: space-between; gap: 8px; font-size: 0.88rem; }
+.slider-row b { font-family: var(--num); white-space: nowrap; }
 input[type=range] { width: 100%; accent-color: var(--battery); }
-.switch-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.88rem; cursor: pointer; }
-.switch-row input { width: 18px; height: 18px; accent-color: var(--export); }
-#solarStart, #chargeCap { accent-color: var(--export); }
-.cap.off { opacity: 0.4; }
-.apply { font: inherit; font-weight: 600; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--fg); color: var(--bg); cursor: pointer; }
-.apply.danger { background: var(--live); border-color: var(--live); color: #fff; }
-.apply:disabled { opacity: 0.4; cursor: default; }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--battery); outline-offset: 2px; }
-.warn { font-size: 0.85rem; background: var(--live-soft); color: var(--live); border-radius: 8px; padding: 10px 12px; }
-.facts { display: flex; flex-direction: column; gap: 8px; font-size: 0.86rem; }
-.facts div { display: flex; justify-content: space-between; gap: 10px; }
-.facts span:first-child { color: var(--muted); }
-.facts span:last-child { font-family: var(--num); text-align: right; overflow-wrap: anywhere; }
-.chart-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
-.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.8rem; color: var(--muted); }
+.green input[type=range] { accent-color: var(--export); }
+.toggle { display: flex; justify-content: space-between; align-items: center; font-size: 0.88rem; cursor: pointer; }
+.toggle input { width: 18px; height: 18px; accent-color: var(--export); }
+.nested { display: flex; flex-direction: column; gap: 12px; padding-left: 12px; border-left: 2px solid var(--line); }
+.nested[hidden], .power[hidden], .row[hidden] { display: none; }
+.btn { font: inherit; font-weight: 600; padding: 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--fg); color: var(--bg); cursor: pointer; }
+.btn.danger { background: var(--live); border-color: var(--live); color: #fff; }
+.btn.quiet { background: transparent; color: var(--fg); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--battery); outline-offset: 2px; }
+.warn { font-size: 0.82rem; background: var(--live-soft); color: var(--live); border-radius: 8px; padding: 8px 10px; }
+.rows { display: flex; flex-direction: column; gap: 8px; font-size: 0.86rem; }
+.row { display: flex; justify-content: space-between; gap: 10px; }
+.row > span:first-child { color: var(--muted); white-space: nowrap; }
+.row > span:last-child { font-family: var(--num); text-align: right; overflow-wrap: anywhere; }
+.power { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pair .big { font-size: 1.4rem; }
+.burn-box { position: relative; height: 170px; touch-action: pan-y; }
+.seg.small { margin-left: auto; grid-template-columns: auto auto; }
+.seg.small button { padding: 3px 10px; font-size: 0.78rem; font-weight: 600; }
+.seg.small button[aria-pressed="true"] { background: var(--line); }
+.legend i.dashed { background: repeating-linear-gradient(90deg, var(--c) 0 5px, transparent 5px 8px); }
+.legend i.dotted { background: repeating-linear-gradient(90deg, var(--c) 0 2px, transparent 2px 5px); }
+.tip { position: absolute; top: 4px; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 0.75rem; font-family: var(--num); line-height: 1.5; white-space: nowrap; }
+.tip b { font-family: var(--ui); }
+.tip[hidden], .legend span[hidden] { display: none; }
+.panel[hidden] { display: none; }
+
+/* Chart */
+.chart-head { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.78rem; color: var(--muted); }
 .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
 select { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); margin-left: auto; }
 .chart-box { position: relative; height: 340px; }
 canvas { width: 100%; height: 100%; display: block; }
-.err { color: var(--live); }
-.today-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
-.today-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-.stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.stat .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-.stat .num { font-family: var(--num); font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.stat .sub { font-size: 0.8rem; color: var(--muted); font-family: var(--num); }
-.meta-line { font-size: 0.8rem; color: var(--muted); }
-.power { display: flex; flex-direction: column; gap: 8px; }
-.power[hidden] { display: none; }
-.stat.split { border-left: 1px solid var(--line); padding-left: 12px; }
-@media (max-width: 600px) { .stat.split { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: 10px; } }
+/* Four across, then two by two: never an orphan on its own row. */
+@media (max-width: 900px) {
+  .tiles, .stats { grid-template-columns: 1fr 1fr; }
+  .today-head .sub { margin-left: 0; }
+}
+@media (max-width: 600px) {
+  .wrap { padding-top: 14px; gap: 12px; }
+  .tile { padding: 12px; }
+  .tile .big { font-size: 1.5rem; }
+  .tile .doing { min-height: 0; font-size: 0.95rem; }
+  .stat .big { font-size: 1.3rem; }
+  .chart-box { height: 240px; }
+}
 </style>
 </head>
 <body>
@@ -96,113 +143,157 @@ canvas { width: 100%; height: 100%; display: block; }
 
   <div class="tiles">
     <div class="tile">
-      <span class="label">Grid (Home Mini)</span>
-      <span class="value" id="grid">-<span class="unit">W</span></span>
+      <span class="label">Grid</span>
+      <span class="big" id="grid">-<span class="unit">W</span></span>
       <span class="sub" id="gridSub">no reading yet</span>
     </div>
     <div class="tile">
-      <span class="label">Battery output</span>
-      <span class="value" id="ac" style="color:var(--battery)">-<span class="unit">W</span></span>
-      <span class="sub" id="acSub">AC to the house</span>
+      <span class="label">Battery</span>
+      <span class="big" id="ac" style="color:var(--battery)">-<span class="unit">W</span></span>
+      <span class="sub" id="acSub">-</span>
     </div>
     <div class="tile">
-      <span class="label" id="targetLabel">Target</span>
-      <span class="value" id="target" style="color:var(--target)">-<span class="unit">W</span></span>
-      <span class="sub" id="reason">-</span>
-    </div>
-    <div class="tile">
-      <span class="label">State of charge</span>
-      <span class="value" id="soc">-<span class="unit">%</span></span>
+      <span class="label">Charge</span>
+      <span class="big" id="soc">-<span class="unit">%</span></span>
       <div class="soc-bar"><i id="socBar"></i></div>
+    </div>
+    <div class="tile">
+      <span class="label" id="doingLabel">Doing</span>
+      <span class="doing" id="doing">-</span>
+      <span class="sub" id="doingSub"></span>
     </div>
   </div>
 
-  <div class="panel today">
+  <section class="panel">
     <div class="today-head">
       <h2>Today</h2>
-      <span class="meta-line" id="tariff">loading tariff…</span>
+      <span class="sub" id="tariff">loading tariff…</span>
     </div>
-    <div class="today-grid">
+    <div class="stats">
+      <div class="stat">
+        <span class="label">Cost so far</span>
+        <span class="big" id="costTotal">-</span>
+        <span class="sub" id="costSplit">-</span>
+        <span class="chip" id="pendingChip" hidden></span>
+      </div>
       <div class="stat">
         <span class="label">Imported</span>
-        <span class="num" id="impTotal">-</span>
-        <span class="sub" id="impSplit">-</span>
+        <span class="big" id="impTotal">-</span>
+        <div class="bar" id="impBar"></div>
+        <div class="keys" id="impKeys"></div>
+      </div>
+      <div class="stat">
+        <span class="label">Battery saved</span>
+        <span class="big" id="savedNet" style="color:var(--export)">-</span>
+        <span class="sub" id="savedSub">-</span>
       </div>
       <div class="stat">
         <span class="label">Exported</span>
-        <span class="num" id="expTotal">-</span>
-        <span class="sub" id="expEarned">-</span>
-      </div>
-      <div class="stat">
-        <span class="label">Cost so far</span>
-        <span class="num" id="costTotal">-</span>
-        <span class="sub" id="costSplit">-</span>
-      </div>
-      <div class="stat split">
-        <span class="label">Battery saved</span>
-        <span class="num" id="savedNet" style="color:var(--export)">-</span>
-        <span class="sub" id="savedSplit">-</span>
-      </div>
-      <div class="stat">
-        <span class="label">Wasted to grid</span>
-        <span class="num" id="wasted">-</span>
-        <span class="sub" id="wastedSub">-</span>
+        <span class="big" id="expTotal">-</span>
+        <span class="sub" id="expSub">-</span>
       </div>
     </div>
-    <span class="meta-line" id="usageAsOf">first update within a minute of starting</span>
-    <span class="meta-line">Imported, exported and cost cover the whole day from your meter. Battery saved and wasted only cover time this app was running, because the meter can't see what the battery did.</span>
-  </div>
+    <span class="sub err" id="usageError" hidden></span>
+    <details>
+      <summary>How these are worked out</summary>
+      <ul>
+        <li>Imported, exported and cost come from your meter for the whole day, refreshed every 10 minutes.</li>
+        <li><b>Pending</b> is the car charging outside a slot Octopus has told us about. Octopus usually confirms it as a smart slot afterwards, so it's costed at off-peak. If it isn't confirmed within 2 hours it moves to peak.</li>
+        <li>Battery saved only counts time this app was running, because the meter can't see the battery. Each kWh used saves the rate at the time minus the off-peak rate it was charged at.</li>
+      </ul>
+    </details>
+  </section>
 
   <div class="main">
-    <div class="panel">
-      <h2>Control</h2>
-      <div class="seg" role="group" aria-label="Mode">
-        <button class="obs" id="btnObs" aria-pressed="true">Observe</button>
-        <button class="live" id="btnLive" aria-pressed="false">Live</button>
-      </div>
-      <div class="cap">
-        <div class="cap-row"><span>Max discharge cap</span><b id="capVal">300 W</b></div>
-        <input type="range" id="cap" min="0" max="800" step="50" value="300" aria-label="Max discharge cap in watts">
-      </div>
-      <label class="switch-row" for="solar">
-        <span>Charge from spare solar</span>
-        <input type="checkbox" id="solar" role="switch" checked>
-      </label>
-      <div class="cap" id="solarStartBox">
-        <div class="cap-row"><span>Start when exporting over</span><b id="solarStartVal">50 W</b></div>
-        <input type="range" id="solarStart" min="0" max="300" step="10" value="50" aria-label="Export level that starts solar charging, in watts">
-      </div>
-      <div class="cap" id="chargeCapBox">
-        <div class="cap-row"><span>Max charge cap (solar, EV slots, Power Ups)</span><b id="chargeCapVal">800 W</b></div>
-        <input type="range" id="chargeCap" min="0" max="2300" step="50" value="800" aria-label="Max solar charge in watts">
-      </div>
-      <div class="warn" id="liveWarn" hidden>Live puts the battery into third-party mode and writes setpoints every cycle. Its app schedule won't run while Live is on. Switching back to Observe, or stopping the service, hands it back to the app mode it was in.</div>
-      <button class="apply" id="apply" disabled>No changes</button>
+    <div class="side">
+      <section class="panel">
+        <h2>Control</h2>
+        <div class="seg" role="group" aria-label="Mode">
+          <button class="obs" id="btnObs" aria-pressed="true">Observe</button>
+          <button class="live" id="btnLive" aria-pressed="false">Live</button>
+        </div>
+        <div class="slider">
+          <div class="slider-row"><span>Max discharge</span><b id="capVal">300 W</b></div>
+          <input type="range" id="cap" min="0" max="800" step="10" value="300" aria-label="Max discharge in watts">
+        </div>
+        <div class="slider green">
+          <div class="slider-row"><span>Max charge <span class="muted">(solar, car slots, Power Ups)</span></span><b id="chargeCapVal">800 W</b></div>
+          <input type="range" id="chargeCap" min="0" max="2300" step="50" value="800" aria-label="Max charge in watts">
+        </div>
+        <label class="toggle" for="solar">
+          <span>Charge from spare solar</span>
+          <input type="checkbox" id="solar" role="switch" checked>
+        </label>
+        <div class="nested" id="solarBox">
+          <div class="slider green">
+            <div class="slider-row"><span>Start when exporting over</span><b id="solarStartVal">50 W</b></div>
+            <input type="range" id="solarStart" min="0" max="300" step="10" value="50" aria-label="Export level that starts solar charging, in watts">
+          </div>
+        </div>
+        <div class="warn" id="liveWarn" hidden>Puts the battery in third-party mode, so the Anker schedule stops until you switch back to Observe.</div>
+        <button class="btn" id="apply" disabled>No changes</button>
+      </section>
 
-      <h2>Checks</h2>
-      <div class="facts">
-        <div><span>Grid reading</span><span id="age">-</span></div>
-        <div><span>Export seen as negative</span><span id="exportSeen">not yet</span></div>
-        <div><span>EV smart slot</span><span id="evSlot">not checked yet</span></div>
-        <div><span>Octopus event</span><span id="octoEvent">not checked yet</span></div>
-        <div><span>Battery mode register</span><span id="bmode">-</span></div>
-        <div><span>Last write</span><span id="written">-</span></div>
-        <div><span>Last error</span><span id="error">none</span></div>
-      </div>
 
-      <div id="powerBox" class="power" hidden>
-        <button class="apply" id="shutdown">Hand back and shut down</button>
-        <span class="meta-line" id="shutdownMsg">Use this before switching the Pi off at the wall, so the battery goes back to its app schedule.</span>
-      </div>
+      <section class="panel">
+        <h2>Status</h2>
+        <div class="rows">
+          <div class="row"><span>Meter reading</span><span id="age">-</span></div>
+          <div class="row"><span>Spare until cheap rate</span><span id="spare">-</span></div>
+          <div class="row"><span>Car slot</span><span id="evSlot">not checked yet</span></div>
+          <div class="row"><span>Octopus event</span><span id="octoEvent">not checked yet</span></div>
+          <div class="row"><span>Battery mode</span><span id="bmode">-</span></div>
+          <div class="row" id="errorRow" hidden><span>Error</span><span id="error" class="err"></span></div>
+        </div>
+        <div class="power" id="powerBox" hidden>
+          <button class="btn quiet" id="shutdown" title="Hands the battery back to the Anker schedule, then powers the Pi off">Hand back and shut down</button>
+          <span class="sub" id="shutdownMsg">Use before unplugging the Pi.</span>
+        </div>
+      </section>
     </div>
 
-    <div class="panel">
+    <div class="side">
+      <section class="panel" id="tonight" hidden>
+        <div class="today-head">
+          <h2 id="tonightTitle">Battery today</h2>
+          <span class="sub" id="tonightSpare"></span>
+          <div class="seg small" role="group" aria-label="Graph range">
+            <button id="viewDay" aria-pressed="true">Whole day</button>
+            <button id="viewNow" aria-pressed="false">From now</button>
+          </div>
+        </div>
+        <div class="tonight-body">
+        <div class="pair">
+          <div class="stat">
+            <span class="label">Likely finish</span>
+            <span class="big" id="finishTypical">-</span>
+            <span class="sub" id="useTypical">-</span>
+          </div>
+          <div class="stat">
+            <span class="label">Busiest evening</span>
+            <span class="big" id="finishWorst">-</span>
+            <span class="sub" id="useWorst">-</span>
+          </div>
+        </div>
+        <div class="burn-box"><canvas id="burn" aria-label="Battery level today and expected until the cheap rate"></canvas><div class="tip" id="burnTip" hidden></div></div>
+        </div>
+        <div class="legend">
+          <span id="keyActual"><i style="background:var(--fg)"></i>today so far</span>
+          <span id="keyDay"><i class="dashed" style="--c:var(--battery)"></i>usual day</span>
+          <span><i style="background:var(--battery)"></i>expected from now</span>
+          <span><i class="dotted" style="--c:var(--export)"></i>plenty above this</span>
+          <span><i style="background:var(--muted)"></i><span id="floorLabel">10%</span> floor</span>
+        </div>
+      </section>
+
+    <section class="panel">
       <div class="chart-head">
         <h2>History</h2>
         <div class="legend">
           <span><i style="background:var(--import)"></i>Grid</span>
-          <span><i style="background:var(--battery)"></i>Battery output</span>
+          <span><i style="background:var(--battery)"></i>Battery</span>
           <span><i style="background:var(--target)"></i>Target</span>
+          <span>below 0: exporting or charging</span>
         </div>
         <select id="range" aria-label="History range">
           <option value="60">1 hour</option>
@@ -212,6 +303,7 @@ canvas { width: 100%; height: 100%; display: block; }
         </select>
       </div>
       <div class="chart-box"><canvas id="chart"></canvas></div>
+    </section>
     </div>
   </div>
 </div>
@@ -228,23 +320,50 @@ let history = [];
 
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const fmt = w => w == null ? '-' : Math.round(w).toLocaleString('en-GB');
+const hm = d => new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+const pounds = p => '£' + (p / 100).toFixed(2);
+const kwh = v => v.toFixed(v >= 10 ? 1 : 2);
 
 function setValue(el, text, unit) { el.innerHTML = `${text}<span class="unit">${unit}</span>`; }
+
+// Turns the controller's reason into something readable at a glance; the full text stays in the tooltip.
+function describe(reason) {
+  const r = reason || '';
+  const rules = [
+    [/^following load, plenty spare/, 'Covering the house, plenty spare'],
+    [/^following load/, 'Covering the house'],
+    [/^covering base load, appliance cycling/, 'Covering the house, ignoring an appliance switching on and off'],
+    [/^charging from solar/, 'Charging from spare solar'],
+    [/^exporting spare \((\d+) W\)/, m => `Exporting spare (${m[1]} W)`],
+    [/^EV smart slot, charging/, 'Car slot: charging cheap'],
+    [/^EV smart slot, battery charged/, 'Car slot: battery full'],
+    [/^car charging outside a known slot/, 'Car charging, waiting for Octopus to confirm the slot'],
+    [/^cheap-rate window/, 'Cheap rate: Anker schedule in charge'],
+    [/^Power Down/, 'Power Down: covering all import'],
+    [/^Power Up/, 'Power Up: charging free'],
+    [/^stopping (charge|discharge)/, 'Switching direction'],
+    [/^SOC at floor/, 'Battery at its floor'],
+    [/^exporting but battery full/, 'Battery full, exporting'],
+    [/^balanced/, 'Balanced'],
+  ];
+  for (const [re, out] of rules) {
+    const m = r.match(re);
+    if (m) return typeof out === 'function' ? out(m) : out;
+  }
+  return r.charAt(0).toUpperCase() + r.slice(1);
+}
 
 function renderDraft() {
   $('btnObs').setAttribute('aria-pressed', draft.mode === 'Observe');
   $('btnLive').setAttribute('aria-pressed', draft.mode === 'Live');
   $('capVal').textContent = draft.maxW + ' W';
   $('cap').value = draft.maxW;
-  $('solar').checked = draft.solarCharge;
-  $('solarStart').value = draft.startExportW;
-  $('solarStart').disabled = !draft.solarCharge;
-  $('solarStartVal').textContent = draft.startExportW + ' W';
-  $('solarStartBox').classList.toggle('off', !draft.solarCharge);
   $('chargeCap').value = draft.maxChargeW;
-  $('chargeCap').disabled = !draft.solarCharge;
   $('chargeCapVal').textContent = draft.maxChargeW + ' W';
-  $('chargeCapBox').classList.toggle('off', !draft.solarCharge);
+  $('solar').checked = draft.solarCharge;
+  $('solarBox').hidden = !draft.solarCharge;
+  $('solarStart').value = draft.startExportW;
+  $('solarStartVal').textContent = draft.startExportW + ' W';
   const changed = !same(draft, server);
   const goingLive = draft.mode === 'Live' && server.mode !== 'Live';
   $('liveWarn').hidden = !goingLive;
@@ -257,9 +376,9 @@ function renderDraft() {
 $('btnObs').onclick = () => { draft.mode = 'Observe'; renderDraft(); };
 $('btnLive').onclick = () => { draft.mode = 'Live'; renderDraft(); };
 $('cap').oninput = e => { draft.maxW = +e.target.value; renderDraft(); };
+$('chargeCap').oninput = e => { draft.maxChargeW = +e.target.value; renderDraft(); };
 $('solar').onchange = e => { draft.solarCharge = e.target.checked; renderDraft(); };
 $('solarStart').oninput = e => { draft.startExportW = +e.target.value; renderDraft(); };
-$('chargeCap').oninput = e => { draft.maxChargeW = +e.target.value; renderDraft(); };
 $('apply').onclick = async () => {
   $('apply').disabled = true;
   const r = await fetch('/api/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft) });
@@ -272,10 +391,12 @@ $('range').onchange = refreshHistory;
 let shutdownArmed = null;
 $('shutdown').onclick = async () => {
   const btn = $('shutdown');
+  const reset = () => { shutdownArmed = null; btn.textContent = 'Hand back and shut down'; btn.classList.remove('danger'); btn.classList.add('quiet'); };
   if (!shutdownArmed) {
     btn.textContent = 'Tap again to shut down';
+    btn.classList.remove('quiet');
     btn.classList.add('danger');
-    shutdownArmed = setTimeout(() => { shutdownArmed = null; btn.textContent = 'Hand back and shut down'; btn.classList.remove('danger'); }, 5000);
+    shutdownArmed = setTimeout(reset, 5000);
     return;
   }
   clearTimeout(shutdownArmed);
@@ -284,13 +405,11 @@ $('shutdown').onclick = async () => {
   try {
     const r = await fetch('/api/shutdown', { method: 'POST' });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
-    $('shutdownMsg').textContent = 'Handing back and shutting down. Wait about 30 seconds, until the green light on the Pi stops flickering, then switch it off.';
+    $('shutdownMsg').textContent = 'Handed back. Unplug once the green light on the Pi stops flickering, about 30 seconds.';
   } catch (e) {
     $('shutdownMsg').textContent = 'Shutdown failed: ' + e.message;
     btn.disabled = false;
-    btn.textContent = 'Hand back and shut down';
-    btn.classList.remove('danger');
-    shutdownArmed = null;
+    reset();
   }
 };
 
@@ -303,11 +422,16 @@ async function refreshStatus() {
     renderDraft();
 
     $('powerBox').hidden = !s.canShutDown;
+    if (s.hardMaxW) $('cap').max = s.hardMaxW;
     const live = s.mode === 'Live';
-    $('modePill').textContent = live ? `LIVE · ${s.maxW} W CAP` : 'OBSERVE · NOTHING WRITTEN';
+    $('modePill').textContent = live ? `LIVE · ${s.maxW} W` : 'OBSERVE';
     $('modePill').className = 'pill ' + (live ? 'live' : 'obs');
-    $('targetLabel').textContent = live ? 'Target' : 'Would set (observe)';
+    $('modePill').title = live ? 'Writing to the battery' : 'Reading only, nothing is written to the battery';
+    $('doingLabel').textContent = live ? 'Doing' : 'Would do';
 
+    renderSpare(s.spare);
+    renderTonight(s.spare, s.day);
+    if (!dayStart || Date.now() - lastDayFetch > 60000) { lastDayFetch = Date.now(); refreshDay(s.cheapRateEnd); }
     renderEv(s.ev);
     renderEvents(s.events);
     renderUsage(s.usage);
@@ -315,42 +439,222 @@ async function refreshStatus() {
     const l = s.latest;
     if (!l) return;
     const now = new Date(s.now);
-    $('updated').textContent = 'last cycle ' + Math.round((now - new Date(l.at)) / 1000) + 's ago';
+    $('updated').textContent = 'updated ' + Math.round((now - new Date(l.at)) / 1000) + 's ago';
 
     if (l.grid) {
       const d = l.grid.demandW;
       setValue($('grid'), fmt(Math.abs(d)), 'W');
       $('grid').style.color = d < 0 ? css('--export') : css('--import');
-      $('gridSub').textContent = d < 0 ? 'exporting' : d === 0 ? 'zero, could be hidden export' : 'importing';
-      // Age at fetch is what the controller acted on; it only drifts because fetches are a minute apart.
+      $('gridSub').textContent = d < 0 ? 'exporting' : 'importing';
+      // Age at fetch is what the controller acted on; it only drifts because fetches are 40 s apart.
       const fetchedAge = Math.round((new Date(l.at) - new Date(l.grid.readAt)) / 1000);
       const age = Math.round((now - new Date(l.grid.readAt)) / 1000);
       const nextIn = Math.max(0, (s.pollSeconds || 60) - Math.round((now - new Date(l.at)) / 1000));
-      $('age').textContent = `${fetchedAge} s when fetched · next in ${nextIn} s` + (age > 120 ? ' (stale)' : '');
+      $('age').textContent = age > 120 ? `stale, ${age} s old` : `${fetchedAge} s old`;
+      $('age').title = `next reading in ${nextIn} s`;
       $('age').className = age > 120 ? 'err' : '';
     }
+    const t = l.decision.targetW;
     if (l.battery) {
-      setValue($('ac'), fmt(Math.abs(l.battery.acOutputW)), 'W');
       const cells = l.battery.batteryPowerW;
-      $('acSub').textContent = (cells < 0 ? 'Charging' : cells > 0 ? 'Discharging' : 'Idle') + ' · cells ' + fmt(Math.abs(cells)) + ' W';
+      setValue($('ac'), fmt(Math.abs(l.battery.acOutputW)), 'W');
       $('ac').style.color = cells < 0 ? css('--export') : css('--battery');
+      const state = cells < 0 ? 'charging' : cells > 0 ? 'discharging' : 'idle';
+      $('acSub').textContent = state + (live && l.written ? ` · aiming for ${t < 0 ? 'charge ' : ''}${fmt(Math.abs(t))} W` : '');
       setValue($('soc'), l.battery.socPercent, '%');
       $('socBar').style.width = l.battery.socPercent + '%';
-      $('bmode').textContent = l.battery.mode + (l.battery.mode === 3 ? ' (third-party)' : '');
+      $('bmode').textContent = l.battery.mode === 3 ? 'third-party' : `Anker app (mode ${l.battery.mode})`;
     }
-    const t = l.decision.targetW;
-    setValue($('target'), (t < 0 ? 'charge ' : t > 0 ? 'discharge ' : '') + fmt(Math.abs(t)), 'W');
-    $('target').style.color = t < 0 ? css('--export') : css('--target');
-    $('reason').textContent = l.decision.reason;
-    $('written').textContent = l.written ? 'written to battery' : 'not written (observe)';
-    $('error').textContent = l.error || 'none';
-    $('error').className = l.error ? 'err' : '';
+    $('doing').textContent = describe(l.decision.reason);
+    $('doing').title = l.decision.reason;
+    $('doingSub').textContent = !live ? `would set ${t < 0 ? 'charge ' : ''}${fmt(Math.abs(t))} W` : '';
+    $('errorRow').hidden = !l.error;
+    $('error').textContent = l.error || '';
   } catch { $('updated').textContent = 'service not responding'; }
+}
+
+let lastSpare = null, lastDay = null;
+let dayStart = null, daySoc = [], lastDayFetch = 0;
+let burnView = 'day', burnHover = null, burnGeom = null;
+try { burnView = localStorage.getItem('burnView') || 'day'; } catch { }
+
+// The battery level logged since the cheap rate ended this morning, for the "today so far" line.
+async function refreshDay(cheapRateEnd) {
+  const [hh, mm] = (cheapRateEnd || '05:30').split(':').map(Number);
+  const start = new Date(); start.setHours(hh, mm, 0, 0);
+  if (start > new Date()) return;
+  dayStart = start.getTime();
+  try {
+    const minutes = Math.ceil((Date.now() - dayStart) / 60000) + 1;
+    const rows = await (await fetch('/api/history?minutes=' + minutes)).json();
+    daySoc = rows.filter(p => p.soc != null).map(p => ({ t: new Date(p.at).getTime(), v: p.soc })).filter(p => p.t >= dayStart);
+    drawBurn();
+  } catch { }
+}
+
+// Level needed at a point for it to count as plenty: the floor, the margin, and the most any recent day still used from there.
+const plentyAt = (sp, s) => (sp.floorPercent || 10) + (sp.marginWh + (s.busiestRemainingWh ?? 0)) / sp.capacityWh * 100;
+const expectedAt = (sp, s) => sp.socPercent - s.typicalWh / sp.capacityWh * 100;
+
+function setView(v) {
+  burnView = v;
+  try { localStorage.setItem('burnView', v); } catch { }
+  $('viewDay').setAttribute('aria-pressed', v === 'day');
+  $('viewNow').setAttribute('aria-pressed', v === 'now');
+  burnHover = null; $('burnTip').hidden = true;
+  drawBurn();
+}
+$('viewDay').onclick = () => setView('day');
+$('viewNow').onclick = () => setView('now');
+
+function renderTonight(sp, day) {
+  lastSpare = sp; lastDay = day;
+  const f = sp && sp.forecast;
+  $('tonight').hidden = !f || !f.steps || f.steps.length < 2;
+  if ($('tonight').hidden) return;
+  const k = wh => (wh / 1000).toFixed(1);
+  $('tonightTitle').textContent = 'Battery today';
+  setValue($('finishTypical'), Math.max(0, Math.round(sp.typicalFinishPercent)), '%');
+  setValue($('finishWorst'), Math.max(0, Math.round(sp.worstFinishPercent)), '%');
+  $('finishWorst').style.color = sp.worstFinishPercent < (sp.floorPercent || 10) ? css('--import') : '';
+  $('useTypical').textContent = `by ${hm(f.steps[f.steps.length - 1].at)}, uses ~${k(f.typicalWh)} kWh`;
+  $('useWorst').textContent = `uses ~${k(f.busiestWh)} kWh`;
+  const crossing = f.steps.find(s => expectedAt(sp, s) >= plentyAt(sp, s));
+  $('tonightSpare').textContent = sp.plenty ? `plenty now · ${k(sp.spareWh)} kWh spare`
+    : crossing ? `plenty expected from about ${hm(crossing.at)}` : 'plenty not expected today';
+  $('floorLabel').textContent = (sp.floorPercent || 10) + '%';
+  $('tonight').title = `Based on the last ${f.days} days, counting house use up to the battery's limit and leaving out the car.`;
+  $('viewDay').setAttribute('aria-pressed', burnView === 'day');
+  $('viewNow').setAttribute('aria-pressed', burnView === 'now');
+  drawBurn();
+}
+
+function burnSeries() {
+  const sp = lastSpare, f = sp && sp.forecast, day = lastDay;
+  if (!f) return null;
+  const at = s => new Date(s.at).getTime();
+  const tNow = at(f.steps[0]);
+  const whole = burnView === 'day' && day && day.steps && day.steps.length > 1;
+  const series = {
+    actual: whole ? daySoc.concat([{ t: tNow, v: sp.socPercent }]) : [],
+    usual: whole ? day.steps.filter(s => s.typicalSoc != null).map(s => ({ t: at(s), v: s.typicalSoc })) : [],
+    expected: f.steps.map(s => ({ t: at(s), v: expectedAt(sp, s) })),
+    plenty: whole ? day.steps.map(s => ({ t: at(s), v: s.plentySoc })) : f.steps.map(s => ({ t: at(s), v: plentyAt(sp, s) })),
+  };
+  $('keyDay').hidden = $('keyActual').hidden = !whole;
+  return { series, tNow, t0: whole ? at(day.steps[0]) : tNow, t1: at(f.steps[f.steps.length - 1]) };
+}
+
+function drawBurn() {
+  const sp = lastSpare;
+  const data = burnSeries();
+  if (!data || $('tonight').hidden) return;
+  const { series, tNow, t0, t1 } = data;
+  const canvas = $('burn');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const g = canvas.getContext('2d');
+  g.scale(dpr, dpr);
+  g.clearRect(0, 0, w, h);
+
+  const pad = { l: 34, r: 8, t: 8, b: 20 };
+  const floor = sp.floorPercent || 10;
+  const all = Object.values(series).flat().map(p => p.v).concat([sp.socPercent, floor]);
+  const hi = Math.min(100, Math.ceil((Math.max(...all) + 5) / 10) * 10);
+  const lo = Math.max(0, Math.floor((Math.min(...all) - 2) / 10) * 10);
+  const x = t => pad.l + (t - t0) / Math.max(1, t1 - t0) * (w - pad.l - pad.r);
+  const y = v => pad.t + (hi - v) / Math.max(1, hi - lo) * (h - pad.t - pad.b);
+  burnGeom = { pad, w, t0, t1, series };
+
+  g.font = '10px ' + css('--num');
+  g.strokeStyle = css('--line'); g.fillStyle = css('--muted'); g.lineWidth = 1;
+  const stepPct = hi - lo > 40 ? 20 : 10;
+  for (let v = lo; v <= hi; v += stepPct) {
+    g.beginPath(); g.moveTo(pad.l, y(v)); g.lineTo(w - pad.r, y(v)); g.stroke();
+    g.textAlign = 'right'; g.fillText(v + '%', pad.l - 4, y(v) + 3);
+  }
+  g.textAlign = 'center';
+  const hour = 3600000, span = t1 - t0, every = span > 10 * hour ? 3 * hour : span > 5 * hour ? 2 * hour : hour;
+  const offset = new Date().getTimezoneOffset() * 60000;
+  for (let t = Math.ceil((t0 - offset) / every) * every + offset; t <= t1; t += every) {
+    g.fillText(hm(t), x(t), h - 6);
+  }
+
+  g.setLineDash([3, 3]); g.strokeStyle = css('--muted'); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(pad.l, y(floor)); g.lineTo(w - pad.r, y(floor)); g.stroke();
+  g.setLineDash([]);
+
+  const draw = (pts, color, dash, width) => {
+    if (pts.length < 2) return;
+    g.strokeStyle = color; g.lineWidth = width || 2; g.setLineDash(dash || []);
+    g.beginPath();
+    pts.forEach((p, i) => i ? g.lineTo(x(p.t), y(p.v)) : g.moveTo(x(p.t), y(p.v)));
+    g.stroke(); g.setLineDash([]);
+  };
+  draw(series.plenty, css('--export'), [2, 3]);
+  draw(series.usual, css('--battery'), [5, 4], 1.5);
+  draw(series.expected, css('--battery'));
+  draw(series.actual, css('--fg'));
+
+  // "Now" marker where today so far hands over to the expectation.
+  if (t0 < tNow) {
+    g.strokeStyle = css('--line'); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x(tNow), pad.t); g.lineTo(x(tNow), h - pad.b); g.stroke();
+  }
+
+  if (burnHover != null) {
+    g.strokeStyle = css('--muted'); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x(burnHover), pad.t); g.lineTo(x(burnHover), h - pad.b); g.stroke();
+  }
+}
+
+// Nearest value of a series to a time, or null if the series doesn't cover it.
+function valueAt(pts, t) {
+  if (!pts.length || t < pts[0].t - 60000 || t > pts[pts.length - 1].t + 60000) return null;
+  return pts.reduce((best, p) => Math.abs(p.t - t) < Math.abs(best.t - t) ? p : best).v;
+}
+
+function showTip(e) {
+  if (!burnGeom) return;
+  const rect = $('burn').getBoundingClientRect();
+  const { pad, w, t0, t1, series } = burnGeom;
+  const px = Math.min(Math.max(e.clientX - rect.left, pad.l), w - pad.r);
+  // Snap to the forecast's 15-minute steps so each point is one slot.
+  const slot = 15 * 60000;
+  const t = Math.round((t0 + (px - pad.l) / (w - pad.l - pad.r) * (t1 - t0)) / slot) * slot;
+  burnHover = Math.min(Math.max(t, t0), t1);
+  const pct = v => v == null ? null : Math.round(v) + '%';
+  const rows = [
+    ['Battery', pct(valueAt(series.actual, burnHover))],
+    ['Usual day', pct(valueAt(series.usual, burnHover))],
+    ['Expected', pct(valueAt(series.expected, burnHover))],
+    ['Plenty above', pct(valueAt(series.plenty, burnHover))],
+  ].filter(([, v]) => v != null);
+  const tip = $('burnTip');
+  tip.innerHTML = `<b>${hm(burnHover)}</b><br>` + rows.map(([k, v]) => `${k} ${v}`).join('<br>');
+  tip.hidden = false;
+  const left = px + 12 + tip.offsetWidth > w ? px - 12 - tip.offsetWidth : px + 12;
+  tip.style.left = left + 'px';
+  drawBurn();
+}
+$('burn').addEventListener('pointermove', showTip);
+$('burn').addEventListener('pointerdown', showTip);
+$('burn').addEventListener('pointerleave', () => { burnHover = null; $('burnTip').hidden = true; drawBurn(); });
+
+function renderSpare(sp) {
+  const el = $('spare');
+  el.style.color = '';
+  const k = wh => (wh / 1000).toFixed(1);
+  if (!sp) { el.textContent = 'cheap rate now'; el.title = ''; return; }
+  if (sp.neededWh == null) { el.textContent = 'not enough history yet'; el.title = ''; return; }
+  el.title = `${k(sp.availableWh)} kWh above 10%, busiest recent evening needed ${k(sp.neededWh)} kWh, keeping ${k(sp.marginWh)} kWh back`;
+  if (sp.plenty) { el.textContent = `${k(sp.spareWh)} kWh · aiming for 5 W export`; el.style.color = css('--export'); }
+  else el.textContent = `none · ${k(sp.availableWh)} of ~${k(sp.neededWh + sp.marginWh)} kWh needed`;
 }
 
 function renderEv(ev) {
   const el = $('evSlot');
-  const hm = d => new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   el.className = '';
   el.style.color = '';
   if (!ev) { el.textContent = 'not checked yet'; return; }
@@ -366,49 +670,10 @@ function renderEv(ev) {
   el.textContent = next ? `next ${hm(next.start)}-${hm(next.end)}` : 'none planned';
 }
 
-function renderUsage(u) {
-  if (!u) return;
-  const kwh = v => v.toFixed(2) + ' kWh';
-  const pounds = p => '£' + (p / 100).toFixed(2);
-  const r = u.rates;
-  if (r) {
-    $('tariff').textContent = `${r.name} · peak ${r.peakP.toFixed(2)}p · off-peak ${r.offPeakP.toFixed(2)}p · standing ${r.standingP.toFixed(2)}p/day` +
-      (r.exportP > 0 ? ` · export ${r.exportP.toFixed(2)}p` : ' · no export tariff yet');
-  }
-  const t = u.today;
-  if (t) {
-    $('impTotal').textContent = kwh(t.importPeakKwh + t.importOffPeakKwh + t.importFreeKwh);
-    $('impSplit').textContent = `peak ${t.importPeakKwh.toFixed(2)} · off-peak ${t.importOffPeakKwh.toFixed(2)}` + (t.importFreeKwh > 0 ? ` · free ${t.importFreeKwh.toFixed(2)}` : '');
-    $('expTotal').textContent = kwh(t.exportKwh);
-    $('expEarned').textContent = t.exportEarnedP > 0 ? `earned ${pounds(t.exportEarnedP)}` : 'not paid yet';
-    $('costTotal').textContent = pounds(t.totalP);
-    $('costSplit').textContent = `energy ${pounds(t.importCostP)} + standing ${pounds(t.standingP)}` + (t.exportEarnedP > 0 ? ` − export ${pounds(t.exportEarnedP)}` : '');
-  }
-  const b = u.battery;
-  if (b) {
-    $('savedNet').textContent = pounds(b.netSavedP);
-    $('savedNet').style.color = b.netSavedP >= 0 ? css('--export') : css('--import');
-    $('savedSplit').textContent = `${b.displacedKwh.toFixed(2)} kWh used instead of the grid` +
-      (b.solarChargedKwh > 0.005 ? ` · ${b.solarChargedKwh.toFixed(2)} kWh charged from solar` : '') +
-      ` · only the ${b.coveredHours.toFixed(1)} h the app was running`;
-    $('savedNet').title = `Each kWh used saves (rate at the time − off-peak rate it was charged at). ` +
-      `Shifting: ${pounds(b.shiftSavedP)}, solar charging: ${pounds(b.solarSavedP)}`;
-    $('wasted').textContent = pounds(b.wastedP);
-    $('wasted').style.color = b.wastedKwh > 0.005 ? css('--import') : '';
-    $('wastedSub').textContent = b.wastedKwh > 0.005
-      ? `${b.wastedKwh.toFixed(2)} kWh discharged while exporting`
-      : 'none, battery only covered the house';
-  }
-  const asOf = u.asOf ? 'from your meter, updated ' + new Date(u.asOf).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ', refreshes every 10 min' : '';
-  $('usageAsOf').textContent = u.error ? `last refresh failed: ${u.error}` + (asOf ? ` (showing ${asOf})` : '') : asOf;
-  $('usageAsOf').className = 'meta-line' + (u.error ? ' err' : '');
-}
-
 function renderEvents(ev) {
   const el = $('octoEvent');
   const label = e => e.type === 'WEEKEND_HAPPY_HOUR' ? 'Happy Hour' : e.kind === 'PowerDown' ? 'Power Down' : 'Power Up';
   const when = d => new Date(d).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-  const hm = d => new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   el.className = '';
   el.style.color = '';
   if (!ev) { el.textContent = 'not checked yet'; return; }
@@ -416,20 +681,66 @@ function renderEvents(ev) {
   const now = new Date();
   const current = ev.upcoming.find(e => new Date(e.start) <= now && now < new Date(e.end));
   if (ev.active && current) {
-    el.textContent = `${label(current)} now, until ${hm(current.end)}`;
+    el.textContent = `${label(current)} until ${hm(current.end)}`;
     el.style.color = ev.active === 'PowerDown' ? css('--target') : css('--export');
     return;
   }
   if (ev.error) { el.textContent = ev.error; el.className = 'err'; return; }
   const next = ev.upcoming[0];
-  el.textContent = next ? `next ${label(next)} ${when(next.start)}-${hm(next.end)}` : 'none booked';
+  el.textContent = next ? `${label(next)} ${when(next.start)}-${hm(next.end)}` : 'none booked';
+}
+
+function renderUsage(u) {
+  if (!u) return;
+  const r = u.rates;
+  if (r) {
+    $('tariff').textContent = `${r.name} · ${r.peakP.toFixed(2)}p peak · ${r.offPeakP.toFixed(2)}p off-peak` +
+      (u.asOf ? ` · updated ${hm(u.asOf)}` : '');
+  }
+  $('usageError').hidden = !u.error;
+  $('usageError').textContent = u.error ? `Couldn't refresh from Octopus: ${u.error}` : '';
+
+  const t = u.today;
+  if (t) {
+    const pending = t.importPendingKwh || 0;
+    const total = t.importPeakKwh + t.importOffPeakKwh + t.importFreeKwh + pending;
+    setValue($('impTotal'), kwh(total), 'kWh');
+    const parts = [
+      ['--offpeak', t.importOffPeakKwh, 'off-peak'],
+      ['--offpeak', pending, 'pending', 'striped'],
+      ['--import', t.importPeakKwh, 'peak'],
+      ['--free', t.importFreeKwh, 'free'],
+    ].filter(([, v]) => v > 0.005);
+    $('impBar').innerHTML = parts.map(([c, v, , cls]) => `<i class="${cls || ''}" style="background:var(${c});width:${(v / total * 100).toFixed(1)}%"></i>`).join('');
+    $('impKeys').innerHTML = parts.map(([c, v, name, cls]) => `<span class="${cls ? 'key-' + cls : ''}" style="--c:var(${c})">${kwh(v)} ${name}</span>`).join('');
+
+    $('costTotal').textContent = pounds(t.totalP);
+    const car = t.carCostP || 0;
+    $('costSplit').innerHTML = (t.carKwh > 0.05 ? `car ${pounds(car)} <span class="muted">(${kwh(t.carKwh)} kWh)</span><br>` : '') +
+      `house ${pounds(t.importCostP - car)} · standing ${pounds(t.standingP)}` +
+      (t.exportEarnedP > 0 ? ` · −${pounds(t.exportEarnedP)} export` : '');
+    $('costSplit').title = "The car share is estimated from the Pi's own readings: anything over 6 kW is the car, until it drops below 1.5 kW.";
+    $('pendingChip').hidden = pending <= 0.005;
+    $('pendingChip').textContent = `+${pounds(t.pendingExtraP || 0)} if pending ends up peak`;
+    $('pendingChip').title = 'The car charged outside a slot Octopus has confirmed so far. It usually confirms it later.';
+
+    setValue($('expTotal'), kwh(t.exportKwh), 'kWh');
+    $('expSub').textContent = t.exportEarnedP > 0 ? `earned ${pounds(t.exportEarnedP)}` : r && r.exportP > 0 ? 'nothing earned yet' : 'unpaid, no export tariff';
+  }
+
+  const b = u.battery;
+  if (b) {
+    $('savedNet').textContent = pounds(b.netSavedP);
+    $('savedNet').style.color = b.netSavedP >= 0 ? css('--export') : css('--import');
+    $('savedNet').title = `Shifting ${pounds(b.shiftSavedP)}, solar charging ${pounds(b.solarSavedP)}, over the ${b.coveredHours.toFixed(1)} h the app ran today`;
+    $('savedSub').textContent = `${kwh(b.displacedKwh)} kWh used instead of the grid` +
+      (b.wastedKwh > 0.005 ? ` · ${pounds(b.wastedP)} lost to export` : '');
+  }
 }
 
 async function refreshHistory() {
   try {
     history = await (await fetch('/api/history?minutes=' + $('range').value)).json();
-    const neg = history.filter(p => p.demandW != null && p.demandW < 0);
-    $('exportSeen').textContent = neg.length ? `yes, down to ${fmt(Math.min(...neg.map(p => p.demandW)))} W` : 'not yet';
     drawChart();
   } catch { }
 }
@@ -448,7 +759,7 @@ function drawChart() {
   const t1 = Date.now(), t0 = t1 - minutes * 60000;
   const vals = history.flatMap(p => [p.demandW, p.acOutputW, p.targetW]).filter(v => v != null);
   let lo = Math.min(-200, ...vals), hi = Math.max(800, ...vals);
-  const step = (hi - lo) > 2000 ? 500 : 200;
+  const step = (hi - lo) > 8000 ? 2000 : (hi - lo) > 4000 ? 1000 : (hi - lo) > 2000 ? 500 : 200;
   lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
   const x = t => pad.l + (t - t0) / (t1 - t0) * (w - pad.l - pad.r);
   const y = v => pad.t + (hi - v) / (hi - lo) * (h - pad.t - pad.b);
@@ -498,11 +809,11 @@ function drawChart() {
 
   if (!pts.length) {
     g.fillStyle = css('--muted'); g.textAlign = 'center'; g.font = '13px ' + css('--ui');
-    g.fillText('No samples in this range yet. The first one arrives within a minute of starting.', w / 2, h / 2);
+    g.fillText('No readings in this range yet.', w / 2, h / 2);
   }
 }
 
-window.addEventListener('resize', drawChart);
+window.addEventListener('resize', () => { drawChart(); drawBurn(); });
 renderDraft();
 refreshStatus(); refreshHistory();
 setInterval(refreshStatus, 5000);

@@ -31,8 +31,14 @@ public sealed class ControlWorker(
     private DateTimeOffset _nextEvPoll = DateTimeOffset.MinValue;
     private string? _evError;
     private readonly EvSlotGate _evGate = new();
+    private readonly DateTimeOffset _startedAt = DateTimeOffset.UtcNow;
+    private IReadOnlyList<TimeRange> _completedSlots = [];
+    private DateTimeOffset? _completedFetchedAt;
+    private NeedForecast? _forecast;
+    private DateTimeOffset _neededAt = DateTimeOffset.MinValue;
     private DateTimeOffset _rateLimitedUntil = DateTimeOffset.MinValue;
     private readonly List<(DateTimeOffset At, int OutputW)> _outputLog = [];
+    private readonly List<(DateTimeOffset At, int LoadW)> _loadLog = [];
     private IReadOnlyList<OctopusEvent> _events = [];
     private DateTimeOffset? _eventsFetchedAt;
     private DateTimeOffset _nextEventsPoll = DateTimeOffset.MinValue;
@@ -109,6 +115,7 @@ public sealed class ControlWorker(
         {
             state = battery.Read();
             LogOutput(DateTimeOffset.UtcNow, state);
+            LogLoad();
         }
         catch (Exception ex)
         {
@@ -132,8 +139,12 @@ public sealed class ControlWorker(
         var appReason = AppReason(opts, now, fixedCharge: (inEvSlot && octopusEvent != OctopusEventKind.PowerDown) || octopusEvent == OctopusEventKind.PowerUp);
         var decision = appReason is not null
             ? new Decision(0, $"{appReason}, app schedule in charge")
-            : ControlLaw.Decide(opts, now, _grid, state, inEvSlot, octopusEvent, OutputAt(_grid?.ReadAt), evSlotsUnknown: !EvSlotsTrusted(now));
+            : ControlLaw.Decide(opts, now, _grid, state, inEvSlot, octopusEvent, OutputAt(_grid?.ReadAt), Spare(opts, now, state), CyclingLoad.BaseW(_loadLog));
         var written = false;
+
+        // Octopus sometimes only lists a slot once it's under way, so look at completed ones while holding for the car.
+        if (decision.Reason == ControlLaw.CarUnconfirmed && (_completedFetchedAt is not { } fetched || now - fetched >= TimeSpan.FromMinutes(1)))
+            await RefreshCompletedSlotsAsync(now, ct);
 
         if (opts.Mode == ControlMode.Live && appReason is not null)
         {
@@ -191,6 +202,14 @@ public sealed class ControlWorker(
     }
 
     // Battery output when the grid reading was taken; null if the reading is older than the log.
+    // House load at each meter reading, for spotting an appliance cycling on and off.
+    private void LogLoad()
+    {
+        if (_grid is null || (_loadLog.Count > 0 && _loadLog[^1].At >= _grid.ReadAt) || OutputAt(_grid.ReadAt) is not { } output) return;
+        _loadLog.Add((_grid.ReadAt, output + _grid.DemandW));
+        _loadLog.RemoveAll(x => _grid.ReadAt - x.At > CyclingLoad.Window);
+    }
+
     private int? OutputAt(DateTimeOffset? readAt)
     {
         if (readAt is null) return null;
@@ -202,9 +221,9 @@ public sealed class ControlWorker(
     {
         try
         {
-            // Never let an older reading replace a newer one.
+            // Never let an older reading replace a newer one; ones from before this start would pair with output this run never saw.
             var latest = await octopus.GetLatestAsync(ct);
-            if (latest is not null && (_grid is null || latest.ReadAt >= _grid.ReadAt)) _grid = latest;
+            if (latest is not null && latest.ReadAt >= _startedAt && (_grid is null || latest.ReadAt >= _grid.ReadAt)) _grid = latest;
         }
         catch (OctopusRateLimitedException ex)
         {
@@ -290,13 +309,60 @@ public sealed class ControlWorker(
         }
     }
 
+    // The expected need moves slowly, so the week of history behind it is only re-read every few minutes.
+    private SpareEstimate? Spare(ControllerOptions opts, DateTimeOffset now, BatteryState? state)
+    {
+        if (opts.Spare.Enabled && now - _neededAt >= TimeSpan.FromMinutes(5))
+        {
+            var days = Math.Max(1, opts.Spare.HistoryDays);
+            var history = log.BatterySamplesSince(now.AddDays(-days - 1));
+            _forecast = SpareCharge.Forecast(history, now, opts.CheapRate.Start, opts.MaxW, days, opts.Spare.CarW);
+            runtime.Day = BuildDay(opts, now, history, days);
+            _neededAt = now;
+        }
+        var spare = state is null ? null : SpareCharge.Estimate(opts, now, state.SocPercent, _forecast?.BusiestWh, _forecast);
+        runtime.Spare = spare;
+        return spare;
+    }
+
+    // The whole day from the end of the cheap rate, so the dashboard can show today against a usual day.
+    private DayProfile? BuildDay(ControllerOptions opts, DateTimeOffset now, IReadOnlyList<BatterySample> history, int days)
+    {
+        var local = now.ToLocalTime();
+        var startLocal = local.Date + opts.CheapRate.End.ToTimeSpan();
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        if (now < start || opts.CheapRate.Contains(TimeOnly.FromDateTime(local.DateTime))) return null;
+
+        var socs = log.SocSince(start.AddDays(-days - 1));
+        var first = socs.FirstOrDefault(s => s.At >= start);
+        if (first == default) return null;
+
+        var need = SpareCharge.Forecast(history, start, opts.CheapRate.Start, opts.MaxW, days, opts.Spare.CarW, allowPartial: true);
+        return SpareCharge.Day(opts, start, first.Soc, need, socs, days);
+    }
+
+    private async Task RefreshCompletedSlotsAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        _completedFetchedAt = now;
+        try
+        {
+            _completedSlots = await octopus.GetCompletedDispatchesAsync(ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning("Completed slot check failed: {Message}", ex.Message);
+        }
+    }
+
     // A failed fetch must never count as a cheap slot, so an old list stops being trusted after a while.
     private bool EvSlotsTrusted(DateTimeOffset now) => _evFetchedAt is { } at && now - at <= EvSlotsTrustedFor;
 
     private bool InEvSlot(ControllerOptions opts, DateTimeOffset now, int? houseDemandW)
     {
         var trusted = EvSlotsTrusted(now);
-        var planned = opts.EvSlot.Enabled && trusted && _evSlots.Any(s => s.Start <= now && now < s.End);
+        var completedNow = _completedFetchedAt is { } at && now - at <= TimeSpan.FromMinutes(5)
+            && _completedSlots.Any(s => s.Start <= now && now < s.End);
+        var planned = opts.EvSlot.Enabled && ((trusted && _evSlots.Any(s => s.Start <= now && now < s.End)) || completedNow);
         var inSlot = opts.EvSlot.Enabled && _evGate.IsCheap(now, planned, houseDemandW, opts.EvSlot.CarChargingW, opts.EvSlot.CarStillChargingW);
         runtime.Ev = new EvStatus(
             _evSlots.Where(s => s.End > now).OrderBy(s => s.Start).ToList(),

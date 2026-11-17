@@ -14,6 +14,7 @@ It's a stopgap. Once the battery is hardwired, Anker's Smart Mode with its own m
 - **Soaks up spare solar.** If you're exporting more than 50 W (configurable), it charges the battery instead of sending it to the grid. Handy if, like me, you have plug-in solar on a separate inverter.
 - **Hands back to the Anker app** overnight (23:30 to 05:30 by default) so your app schedule does the cheap-rate charging, and whenever Octopus data goes stale or gets rate-limited.
 - **Intelligent Octopus Go.** During a smart-charge slot for your car, it charges the battery at the cheap rate instead of discharging into the car. Octopus only bills a slot cheap if the car actually charged, so it waits until the meter shows the car drawing power (3.5 kW by default), then treats the rest of that half-hour as cheap.
+- **Leans towards export when there's plenty.** If the battery holds more than the busiest recent evening needed, plus a margin, it aims for a 5 W export rather than a 15 W import. A stray watt imported costs the peak rate; one exported only costs the cheap rate it was charged at.
 - **Evening export (off by default).** With an export tariff, it can send whatever's left in the battery to the grid before the cheap rate starts. It works out what the house still needs before then, so on busy days it exports nothing.
 - **Octopus events.** It charges during Happy Hours and Power Ups you've joined, and covers all import during Power Downs you've joined.
 - **Dashboard** at `http://localhost:5080` (or the Pi's IP), with live readings, a history chart, an Observe/Live switch and the caps.
@@ -74,11 +75,14 @@ Everything lives in `src/Solix.Worker/appsettings.json` under `Controller`. The 
 | `ImportBufferW` | 15 | Import it aims to leave while discharging |
 | `PollSeconds` | 40 | How often it reads the Home Mini. Octopus allows 125 an hour for this, so don't go much below 35 |
 | `SocFloorPercent` | 5 | Stops discharging at this SOC |
+| `BatteryCapacityWh` | 5000 | Usable capacity, used to turn SOC into energy |
+| `Spare:ExportTargetW` | 5 | When there's clearly more charge than the evening needs, it aims for this tiny export instead of `ImportBufferW` |
+| `Spare:MarginWh` | 500 | Kept back on top of the busiest evening in the last `Spare:HistoryDays` (7) days before it counts as spare |
 | `CheapRate:Start` / `End` | 23:30 / 05:30 | When to hand back to the app for cheap-rate charging. Keep it the same as your app schedule |
 | `SolarCharge:StartExportW` | 50 | Export level that starts solar charging |
 | `SolarCharge:MaxChargeW` | 800 | Charge cap for solar, EV smart-charge slots and Power Ups (up to 2300 W) |
 | `EvSlot:ChargeW` | unset | Set this only if you want EV slots to charge at a different rate from the charge cap |
-| `EvSlot:CarChargingW` | 3500 | Demand that counts as the car charging. Set it above your kettle plus base load, below what your car draws |
+| `EvSlot:CarChargingW` | 6000 | Demand that counts as the car charging. Set it above a busy kitchen (oven and hobs can reach 5 kW), below what your car draws |
 | `EvSlot:CarStillChargingW` | 1500 | Lower bar once the car has been seen in a slot, so tapering near full still counts |
 | `EveningExport:Enabled` | false | Exports what's left in the battery before the cheap-rate window. Only turn it on with an export tariff that pays more than your overnight rate |
 | `EveningExport:Start` | 21:00 | When exporting can start. It spreads the spare out so the battery reaches the floor just as the cheap rate starts |

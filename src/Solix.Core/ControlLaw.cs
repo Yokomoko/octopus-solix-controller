@@ -2,6 +2,12 @@ namespace Solix.Core;
 
 public static class ControlLaw
 {
+    public const string CarUnconfirmed = "car charging outside a known slot, holding until Octopus confirms";
+    public const string Cycling = "covering base load, appliance cycling";
+
+    // Import beyond the cap by at least this much can't be a stale reading's overshoot.
+    private const int JumpMarginW = 200;
+
     /// <summary>
     /// Works out the setpoint. Priority: Power Down, Power Up, EV smart slot, then normal running
     /// (discharge to cover import, charge to soak up export).
@@ -14,7 +20,8 @@ public static class ControlLaw
         bool inEvSlot = false,
         OctopusEventKind? octopusEvent = null,
         int? outputAtReadingW = null,
-        bool evSlotsUnknown = false)
+        SpareEstimate? spare = null,
+        int? cyclingBaseW = null)
     {
         var cheap = options.CheapRate;
         if (cheap.Enabled && !cheap.HandBackToApp && cheap.Contains(TimeOnly.FromDateTime(now.LocalDateTime)))
@@ -60,9 +67,9 @@ public static class ControlLaw
         if (powerDown)
             return PowerDown(options, battery, balance);
 
-        // Car-sized import with no trustworthy slot list is probably a cheap slot, so don't empty the battery into the car.
-        if (evSlotsUnknown && options.EvSlot.Enabled && balance >= options.EvSlot.CarChargingW)
-            return new Decision(0, "car charging, slot list out of date");
+        // On Intelligent Go the car nearly always charges in a slot, even one Octopus only reports afterwards.
+        if (options.EvSlot.Enabled && options.EvSlot.HoldUnconfirmedCar && balance >= options.EvSlot.CarChargingW)
+            return new Decision(0, CarUnconfirmed);
 
         // Spare charge before the cheap window goes out to the grid: aim the meter at an export instead of a small import.
         var exportW = EveningExport.ExtraW(options, TimeOnly.FromDateTime(now.LocalDateTime), battery.SocPercent, balance);
@@ -72,12 +79,25 @@ public static class ControlLaw
             return decision with { Reason = decision.Reason.Replace("following load", $"exporting spare ({exportW} W)") };
         }
 
-        if (balance > options.ImportBufferW)
-            return Discharge(options, battery, current, balance, options.ImportBufferW);
+        // With charge to spare, a tiny export is cheaper than a tiny import.
+        var plenty = spare?.Plenty == true;
+        var gridTargetW = plenty ? -options.Spare.ExportTargetW : options.ImportBufferW;
+        if (balance > gridTargetW)
+        {
+            // Chasing spikes the meter reports late exports the battery once they stop; worth it only with charge to spare.
+            if (!plenty && cyclingBaseW is { } baseW && balance > baseW)
+            {
+                if (baseW <= gridTargetW) return new Decision(0, Cycling);
+                var covered = Discharge(options, battery, current, baseW, gridTargetW);
+                return covered with { Reason = covered.Reason.Replace("following load", Cycling) };
+            }
+            var decision = Discharge(options, battery, current, balance, gridTargetW);
+            return plenty ? decision with { Reason = decision.Reason.Replace("following load", "following load, plenty spare") } : decision;
+        }
 
         var solar = options.SolarCharge;
         if (solar.Enabled && balance <= -solar.StartExportW)
-            return Charge(options, battery, current, balance);
+            return Charge(options, battery, current, balance, plenty);
 
         return new Decision(0, "balanced");
     }
@@ -104,6 +124,10 @@ public static class ControlLaw
         if (wanted <= current)
             return new Decision(wanted, "following load");
 
+        // Far more import than the cap can cover leaves nothing to overshoot into, so go straight to the cap.
+        if (balance - gridTargetW >= options.MaxW + JumpMarginW)
+            return new Decision(options.MaxW, "following load");
+
         // Increases close only part of the gap and are rate limited; decreases above apply at once.
         var damped = current + (int)Math.Round((wanted - current) * Math.Clamp(options.Gain, 0.1, 1));
         var limit = current + options.MaxStepUpW;
@@ -112,7 +136,7 @@ public static class ControlLaw
             : new Decision(damped, "following load");
     }
 
-    private static Decision Charge(ControllerOptions options, BatteryState battery, int current, int balance)
+    private static Decision Charge(ControllerOptions options, BatteryState battery, int current, int balance, bool plenty)
     {
         var solar = options.SolarCharge;
         if (battery.SocPercent >= solar.SocCeilingPercent)
@@ -124,12 +148,19 @@ public static class ControlLaw
         var wanted = Math.Max(balance + solar.TargetExportW, -solar.MaxChargeW);
         if (wanted >= 0)
             return new Decision(0, "balanced");
+
+        // Topping a small spare up to the battery's minimum buys grid at peak. That pays back only if the battery would
+        // run out before the cheap rate; with plenty spare it just means less overnight charging at the cheap rate.
+        var floor = -Math.Min(solar.MinChargeW, solar.MaxChargeW);
+        var minimumSpare = plenty ? solar.MinChargeW : solar.MinChargeW / 2;
+        if (wanted > floor && -balance < minimumSpare)
+            return new Decision(0, "balanced");
         if (wanted >= current)
-            return new Decision(wanted, "charging from solar");
+            return new Decision(Math.Min(wanted, floor), "charging from solar");
 
         // Same as discharging: charge increases are damped, reductions apply at once.
-        var damped = current + (int)Math.Round((wanted - current) * Math.Clamp(options.Gain, 0.1, 1));
-        var limit = current - options.MaxStepUpW;
+        var damped = Math.Min(current + (int)Math.Round((wanted - current) * Math.Clamp(options.Gain, 0.1, 1)), floor);
+        var limit = Math.Min(current - options.MaxStepUpW, floor);
         return damped < limit
             ? new Decision(limit, "charging from solar (step limited)")
             : new Decision(damped, "charging from solar");

@@ -24,7 +24,8 @@ public sealed class ControlLawTests
     [TestMethod]
     [DataRow(200, 250, 410, DisplayName = "importing raises output")]
     [DataRow(400, -150, 210, DisplayName = "exporting lowers output")]
-    [DataRow(300, 900, 600, DisplayName = "big jump is step limited")]
+    [DataRow(300, 600, 600, DisplayName = "jump near the cap is step limited")]
+    [DataRow(340, 3192, 800, DisplayName = "import far beyond the cap: straight to the cap")]
     [DataRow(700, 500, 800, DisplayName = "clamped to max")]
     public void Follows_load(int acW, int demandW, int expected)
     {
@@ -45,10 +46,13 @@ public sealed class ControlLawTests
     }
 
     [TestMethod]
-    [DataRow(0, -300, -280, DisplayName = "idle battery starts charging from export")]
+    [DataRow(0, -300, -295, DisplayName = "idle battery starts charging from export")]
+    [DataRow(0, -64, -75, DisplayName = "small export: charges at the battery's 75 W minimum, not a request it ignores")]
+    [DataRow(-75, 11, -75, DisplayName = "holds the minimum while a little spare remains")]
     [DataRow(0, -40, 0, DisplayName = "export under threshold is left alone")]
-    [DataRow(-280, -20, -280, DisplayName = "steady charge holds")]
-    [DataRow(-280, 200, -60, DisplayName = "cloud cuts charge at once")]
+    [DataRow(-280, -5, -280, DisplayName = "steady charge holds")]
+    [DataRow(-280, 200, -75, DisplayName = "cloud cuts charge at once, down to the 75 W minimum")]
+    [DataRow(-280, 250, 0, DisplayName = "cloud leaves only 30 W spare: stops rather than charge mostly from the grid")]
     [DataRow(-280, 260, 0, DisplayName = "import stops charge")]
     [DataRow(0, -900, -300, DisplayName = "charge increase is step limited")]
     public void Charges_from_solar_export(int batteryW, int demandW, int expected)
@@ -91,24 +95,28 @@ public sealed class ControlLawTests
 
         var decision = ControlLaw.Decide(options, Now, Grid(3000), Battery(300), inEvSlot: true);
 
-        Assert.AreEqual(600, decision.TargetW);
+        Assert.AreEqual(800, decision.TargetW);
     }
 
     [TestMethod]
-    [DataRow(true, 7500, 0, DisplayName = "car charging with stale slots: holds")]
-    [DataRow(true, 2500, 600, DisplayName = "stale slots, house-sized import: follows load")]
-    [DataRow(false, 7500, 600, DisplayName = "fresh list with no slot: follows load")]
-    public void Stale_slot_list_does_not_discharge_into_the_car(bool unknown, int demandW, int expected)
+    [DataRow(true, 7500, 0, DisplayName = "car charging with no known slot: holds")]
+    [DataRow(true, 2500, 800, DisplayName = "house-sized import: follows load")]
+    [DataRow(true, 4500, 800, DisplayName = "oven and hobs: follows load, not mistaken for the car")]
+    [DataRow(false, 7500, 800, DisplayName = "hold turned off: follows load")]
+    public void Does_not_discharge_into_the_car_outside_a_known_slot(bool hold, int demandW, int expected)
     {
-        var decision = ControlLaw.Decide(Options(), Now, Grid(demandW), Battery(300), evSlotsUnknown: unknown);
+        var options = Options();
+        options.EvSlot.HoldUnconfirmedCar = hold;
+
+        var decision = ControlLaw.Decide(options, Now, Grid(demandW), Battery(300));
 
         Assert.AreEqual(expected, decision.TargetW);
     }
 
     [TestMethod]
-    public void Power_down_beats_stale_slot_hold()
+    public void Power_down_beats_the_car_hold()
     {
-        var decision = ControlLaw.Decide(Options(), Now, Grid(7500), Battery(300), octopusEvent: OctopusEventKind.PowerDown, evSlotsUnknown: true);
+        var decision = ControlLaw.Decide(Options(), Now, Grid(7500), Battery(300), octopusEvent: OctopusEventKind.PowerDown);
 
         Assert.AreEqual(800, decision.TargetW);
     }
@@ -292,5 +300,37 @@ public sealed class ControlLawTests
         var window = new CheapRateOptions { Start = new(23, 30), End = new(5, 30) };
 
         Assert.AreEqual(expected, window.Contains(new TimeOnly(hour, minute)));
+    }
+
+    [TestMethod]
+    [DataRow(false, -64, -75, DisplayName = "battery will be needed: tops 64 W of solar up to the 75 W minimum")]
+    [DataRow(true, -64, 0, DisplayName = "plenty spare: won't buy peak grid just to reach the minimum")]
+    [DataRow(true, -120, -115, DisplayName = "plenty spare: still stores solar when it covers the minimum on its own")]
+    public void Grid_top_up_to_the_minimum_only_when_the_battery_will_be_used(bool plenty, int demandW, int expected)
+    {
+        var spare = new SpareEstimate(plenty ? 4000 : 1000, 2000, 500);
+
+        var decision = ControlLaw.Decide(Options(), Now, Grid(demandW), new BatteryState(0, 0, 60, 3), spare: spare);
+
+        Assert.AreEqual(expected, decision.TargetW);
+    }
+
+    [TestMethod]
+    [DataRow(false, 150, DisplayName = "not plenty: covers only the base under the spikes")]
+    [DataRow(true, 800, DisplayName = "plenty spare: chases the spike as before")]
+    public void Cycling_appliance(bool plenty, int expected)
+    {
+        var spare = new SpareEstimate(plenty ? 3000 : 500, 1000, 500);
+        var decision = ControlLaw.Decide(Options(), Now, Grid(2000), Battery(150), spare: spare, cyclingBaseW: 190);
+
+        Assert.AreEqual(expected, decision.TargetW);
+    }
+
+    [TestMethod]
+    public void Cycling_reading_back_at_base_follows_as_normal()
+    {
+        var decision = ControlLaw.Decide(Options(), Now, Grid(-650), Battery(800), cyclingBaseW: 190);
+
+        Assert.AreEqual(110, decision.TargetW);
     }
 }
