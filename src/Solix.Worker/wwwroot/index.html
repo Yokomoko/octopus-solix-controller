@@ -99,7 +99,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .power { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .pair .big { font-size: 1.4rem; }
-.burn-box { position: relative; height: 170px; touch-action: pan-y; }
+#tonight { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.burn-box { position: relative; height: 170px; touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
+.burn-box canvas { -webkit-user-drag: none; outline: none; }
 .seg.small { margin-left: auto; grid-template-columns: auto auto; }
 .seg.small button { padding: 3px 10px; font-size: 0.78rem; font-weight: 600; }
 .seg.small button[aria-pressed="true"] { background: var(--line); }
@@ -282,7 +284,7 @@ canvas { width: 100%; height: 100%; display: block; }
           <span id="keyDay"><i class="dashed" style="--c:var(--battery)"></i>usual day</span>
           <span><i style="background:var(--battery)"></i>expected from now</span>
           <span><i class="dotted" style="--c:var(--export)"></i>plenty above this</span>
-          <span><i style="background:var(--muted)"></i><span id="floorLabel">10%</span> floor</span>
+          <span><i style="background:var(--muted)"></i><span id="floorLabel">10%</span> planning floor</span>
         </div>
       </section>
 
@@ -634,13 +636,21 @@ function showTip(e) {
   const tip = $('burnTip');
   tip.innerHTML = `<b>${hm(burnHover)}</b><br>` + rows.map(([k, v]) => `${k} ${v}`).join('<br>');
   tip.hidden = false;
-  const left = px + 12 + tip.offsetWidth > w ? px - 12 - tip.offsetWidth : px + 12;
+  // A finger covers the area round it, so on touch the figures go to the far side of the chart.
+  const left = e.pointerType === 'mouse'
+    ? (px + 12 + tip.offsetWidth > w ? px - 12 - tip.offsetWidth : px + 12)
+    : (px > w / 2 ? pad.l + 4 : w - pad.r - 4 - tip.offsetWidth);
   tip.style.left = left + 'px';
   drawBurn();
 }
+function hideTip() { burnHover = null; $('burnTip').hidden = true; drawBurn(); }
 $('burn').addEventListener('pointermove', showTip);
 $('burn').addEventListener('pointerdown', showTip);
-$('burn').addEventListener('pointerleave', () => { burnHover = null; $('burnTip').hidden = true; drawBurn(); });
+$('burn').addEventListener('contextmenu', e => e.preventDefault());
+$('tonight').addEventListener('selectstart', e => e.preventDefault());
+// On touch the figures stay up after lifting the finger, until a tap elsewhere.
+$('burn').addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hideTip(); });
+document.addEventListener('pointerdown', e => { if (burnHover != null && e.target !== $('burn')) hideTip(); });
 
 function renderSpare(sp) {
   const el = $('spare');
