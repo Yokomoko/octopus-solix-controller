@@ -55,7 +55,7 @@ If the Octopus data goes stale or gets rate-limited, or the app stops, it hands 
 
 Installation, settings and the Pi setup are all in [docs/SETUP.md](docs/SETUP.md).
 
-It's a stopgap. Once my battery's hardwired, I'll switch to Anker's Smart Mode.
+It uses the Home Mini you've already got, so there's no extra meter to buy and your battery can be following the house today. If you get it hardwired with Anker's meter later on, Smart Mode can take over and you just switch this off.
 
 ## Licence
 
