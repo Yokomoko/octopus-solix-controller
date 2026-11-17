@@ -77,7 +77,7 @@ Everything lives in `src/Solix.Worker/appsettings.json` under `Controller`. The 
 | `SocFloorPercent` | 5 | Stops discharging at this SOC |
 | `BatteryCapacityWh` | 5000 | Usable capacity, used to turn SOC into energy |
 | `Spare:ExportTargetW` | 5 | When there's clearly more charge than the evening needs, it aims for this tiny export instead of `ImportBufferW` |
-| `Spare:MarginWh` | 500 | Kept back on top of the busiest evening in the last `Spare:HistoryDays` (7) days before it counts as spare |
+| `Spare:MarginWh` | 200 | Kept back on top of the busiest evening in the last `Spare:HistoryDays` (7) days before it counts as spare |
 | `CheapRate:Start` / `End` | 23:30 / 05:30 | When to hand back to the app for cheap-rate charging. Keep it the same as your app schedule |
 | `SolarCharge:StartExportW` | 50 | Export level that starts solar charging |
 | `SolarCharge:MaxChargeW` | 800 | Charge cap for solar, EV smart-charge slots and Power Ups (up to 2300 W) |

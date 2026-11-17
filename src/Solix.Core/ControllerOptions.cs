@@ -124,7 +124,7 @@ public sealed class SpareOptions
     public int FloorPercent { get; set; } = 10;
 
     /// <summary>Kept back on top of the expected need, for an unusually busy evening.</summary>
-    public int MarginWh { get; set; } = 500;
+    public int MarginWh { get; set; } = 200;
 
     /// <summary>Days of logged use the expected need is taken from (the busiest of them).</summary>
     public int HistoryDays { get; set; } = 7;
