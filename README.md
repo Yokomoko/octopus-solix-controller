@@ -3,6 +3,8 @@
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-green)](LICENSE)
 [![Runs on Raspberry Pi](https://img.shields.io/badge/runs%20on-Raspberry%20Pi-C51A4A)](docs/SETUP.md#running-it-on-a-raspberry-pi)
+[![Runs on Windows](https://img.shields.io/badge/runs%20on-Windows-0078D4)](docs/SETUP.md#running-it)
+[![Runs on Linux](https://img.shields.io/badge/runs%20on-Linux-FCC624)](docs/SETUP.md#running-it)
 
 **Get your plug-in Anker SOLIX battery following the house the way it would if it were hardwired.**
 
@@ -51,7 +53,7 @@ If the Octopus data goes stale or gets rate-limited, or the app stops, it hands 
 
 - An Anker SOLIX Solarbank 4 E5000 Pro on your Wi-Fi, with Modbus TCP turned on in the Anker app.
 - An Octopus Energy account with a Home Mini.
-- Something to run it on. A Raspberry Pi Zero 2 W uses about £1 a year in electricity, or any Windows, Mac or Linux machine with .NET 10 will do.
+- Something to run it on. A Raspberry Pi Zero 2 W uses about £1 a year in electricity, or any Windows or Linux machine with .NET 10 will do. It should run on a Mac too, though I haven't tried it. On a Windows PC or laptop it stops the machine dropping into standby while it's Live, and hands the battery back when Windows shuts down, restarts or sleeps.
 
 Installation, settings and the Pi setup are all in [docs/SETUP.md](docs/SETUP.md).
 
