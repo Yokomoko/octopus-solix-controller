@@ -656,7 +656,8 @@ function showTip(e) {
   const slot = 15 * 60000;
   const t = Math.round((t0 + (px - pad.l) / (w - pad.l - pad.r) * (t1 - t0)) / slot) * slot;
   burnHover = Math.min(Math.max(t, t0), t1);
-  const pct = v => v == null ? null : Math.round(v) + '%';
+  const cap = lastSpare && lastSpare.capacityWh;
+  const pct = v => v == null ? null : Math.round(v) + '%' + (cap ? ` · ${(Math.max(0, v) / 100 * cap / 1000).toFixed(2)} kWh` : '');
   const rows = [
     ['Battery', pct(valueAt(series.actual, burnHover))],
     ['Usual day', pct(valueAt(series.usual, burnHover))],
