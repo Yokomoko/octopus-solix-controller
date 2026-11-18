@@ -30,6 +30,7 @@ builder.Services.AddSingleton(sp =>
     return new OctopusClient(
         http,
         sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<OctopusOptions>>(),
+        sp.GetRequiredService<SampleLog>(),
         sp.GetRequiredService<ILogger<OctopusClient>>());
 });
 builder.Services.AddSingleton<SolixModbus>();
@@ -45,9 +46,14 @@ app.UseStaticFiles();
 app.MapGet("/api/status", (RuntimeControl runtime, Microsoft.Extensions.Options.IOptionsMonitor<ControllerOptions> options) =>
 {
     var s = runtime.Current;
+    var applied = runtime.Apply(options.CurrentValue);
     return new
     {
         s.Mode, s.MaxW, s.SolarCharge, s.StartExportW, s.MaxChargeW,
+        importBufferW = applied.ImportBufferW,
+        plentyExportW = applied.Spare.ExportTargetW,
+        solarExportW = applied.SolarCharge.TargetExportW,
+        spareMarginWh = applied.Spare.MarginWh,
         pollSeconds = options.CurrentValue.PollSeconds,
         hardMaxW = runtime.HardMaxW,
         now = DateTimeOffset.UtcNow,

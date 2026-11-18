@@ -10,8 +10,7 @@
   --import: #c2410c; --export: #0e7a55; --battery: #2563eb; --target: #7c3aed;
   --offpeak: #0e7490; --free: #7c3aed;
   --live: #b91c1c; --live-soft: #fde8e8; --obs: #0e7a55; --obs-soft: #e0f2ea;
-  --ui: "Segoe UI", system-ui, -apple-system, sans-serif;
-  --num: "Cascadia Mono", "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -23,29 +22,30 @@
   }
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--ui); font-size: 15px; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--ui); font-size: 15px; line-height: 1.4; font-variant-numeric: tabular-nums; }
 .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
 header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 h1 { font-size: 1.25rem; margin: 0; letter-spacing: -0.01em; }
-h2 { font-size: 0.95rem; margin: 0; }
-.pill { font-family: var(--num); font-size: 0.75rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; letter-spacing: 0.06em; }
+h2 { font-size: 1rem; font-weight: 600; margin: 0; }
+.pill { font-size: 0.82rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
 .pill.obs { background: var(--obs-soft); color: var(--obs); }
 .pill.live { background: var(--live-soft); color: var(--live); }
-.meta { color: var(--muted); font-size: 0.82rem; margin-left: auto; font-family: var(--num); }
+.meta { color: var(--muted); font-size: 0.85rem; margin-left: auto; }
 .muted { color: var(--muted); }
 .err { color: var(--live); }
 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-.big { font-family: var(--num); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
-.unit { font-size: 0.55em; font-weight: 400; color: var(--muted); margin-left: 3px; }
+.label { font-size: 0.9rem; font-weight: 500; }
+.big { font-weight: 600; line-height: 1.15; letter-spacing: -0.01em; }
+.unit { font-weight: 400; margin-left: 0.2em; }
+.unit.pct { margin-left: 0; }
 .sub { font-size: 0.8rem; color: var(--muted); }
 
 /* Live readouts */
 .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.tile .big { font-size: 1.9rem; }
-.tile .doing { font-size: 1.05rem; font-weight: 600; line-height: 1.3; min-height: 2.6em; }
+.tile .big { font-size: 1.6rem; }
+.tile .doing { font-size: 1.05rem; font-weight: 500; line-height: 1.3; min-height: 2.6em; }
 .soc-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 6px; }
 .soc-bar i { display: block; height: 100%; background: var(--battery); width: 0; transition: width 0.4s; }
 
@@ -54,10 +54,10 @@ h2 { font-size: 0.95rem; margin: 0; }
 .today-head .sub { margin-left: auto; }
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 .stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.stat .big { font-size: 1.5rem; }
+.stat .big { font-size: 1.35rem; }
 .bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--line); margin-top: 4px; }
 .bar i { display: block; height: 100%; }
-.keys { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 0.78rem; color: var(--muted); font-family: var(--num); }
+.keys { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 0.78rem; color: var(--muted); }
 .keys span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; background: var(--c); }
 .keys span.key-striped::before { background: repeating-linear-gradient(135deg, var(--c) 0 2px, transparent 2px 4px); outline: 1px solid var(--c); outline-offset: -1px; }
 .chip { align-self: flex-start; font-size: 0.78rem; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); }
@@ -66,6 +66,9 @@ h2 { font-size: 0.95rem; margin: 0; }
 details { font-size: 0.82rem; color: var(--muted); }
 details summary { cursor: pointer; width: fit-content; }
 details ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+details.advanced { font-size: 0.88rem; color: var(--fg); }
+details.advanced .nested { margin-top: 12px; }
+details.advanced .hint { font-size: 0.78rem; color: var(--muted); }
 
 /* Control and status */
 .main { display: grid; grid-template-columns: 320px 1fr; gap: 12px; align-items: start; }
@@ -79,7 +82,7 @@ details ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction:
 .seg button[aria-pressed="true"].live { background: var(--live-soft); color: var(--live); }
 .slider { display: flex; flex-direction: column; gap: 4px; }
 .slider-row { display: flex; justify-content: space-between; gap: 8px; font-size: 0.88rem; }
-.slider-row b { font-family: var(--num); white-space: nowrap; }
+.slider-row b { font-weight: 600; white-space: nowrap; }
 input[type=range] { width: 100%; accent-color: var(--battery); }
 .green input[type=range] { accent-color: var(--export); }
 .toggle { display: flex; justify-content: space-between; align-items: center; font-size: 0.88rem; cursor: pointer; }
@@ -95,7 +98,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .rows { display: flex; flex-direction: column; gap: 8px; font-size: 0.86rem; }
 .row { display: flex; justify-content: space-between; gap: 10px; }
 .row > span:first-child { color: var(--muted); white-space: nowrap; }
-.row > span:last-child { font-family: var(--num); text-align: right; overflow-wrap: anywhere; }
+.row > span:last-child { text-align: right; overflow-wrap: anywhere; }
 .power { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .pair .big { font-size: 1.4rem; }
@@ -107,8 +110,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .seg.small button[aria-pressed="true"] { background: var(--line); }
 .legend i.dashed { background: repeating-linear-gradient(90deg, var(--c) 0 5px, transparent 5px 8px); }
 .legend i.dotted { background: repeating-linear-gradient(90deg, var(--c) 0 2px, transparent 2px 5px); }
-.tip { position: absolute; top: 4px; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 0.75rem; font-family: var(--num); line-height: 1.5; white-space: nowrap; }
-.tip b { font-family: var(--ui); }
+.tip { position: absolute; top: 4px; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 0.8rem; line-height: 1.5; white-space: nowrap; }
 .tip[hidden], .legend span[hidden] { display: none; }
 .panel[hidden] { display: none; }
 
@@ -127,9 +129,9 @@ canvas { width: 100%; height: 100%; display: block; }
 @media (max-width: 600px) {
   .wrap { padding-top: 14px; gap: 12px; }
   .tile { padding: 12px; }
-  .tile .big { font-size: 1.5rem; }
+  .tile .big { font-size: 1.4rem; }
   .tile .doing { min-height: 0; font-size: 0.95rem; }
-  .stat .big { font-size: 1.3rem; }
+  .stat .big { font-size: 1.2rem; }
   .chart-box { height: 240px; }
 }
 </style>
@@ -139,7 +141,7 @@ canvas { width: 100%; height: 100%; display: block; }
 
   <header>
     <h1>Solix Load Follower</h1>
-    <span class="pill obs" id="modePill">OBSERVE</span>
+    <span class="pill obs" id="modePill">Observe</span>
     <span class="meta" id="updated">waiting for first cycle…</span>
   </header>
 
@@ -151,12 +153,12 @@ canvas { width: 100%; height: 100%; display: block; }
     </div>
     <div class="tile">
       <span class="label">Battery</span>
-      <span class="big" id="ac" style="color:var(--battery)">-<span class="unit">W</span></span>
+      <span class="big" id="ac">-<span class="unit">W</span></span>
       <span class="sub" id="acSub">-</span>
     </div>
     <div class="tile">
       <span class="label">Charge</span>
-      <span class="big" id="soc">-<span class="unit">%</span></span>
+      <span class="big" id="soc">-<span class="unit pct">%</span></span>
       <div class="soc-bar"><i id="socBar"></i></div>
     </div>
     <div class="tile">
@@ -186,7 +188,7 @@ canvas { width: 100%; height: 100%; display: block; }
       </div>
       <div class="stat">
         <span class="label">Battery saved</span>
-        <span class="big" id="savedNet" style="color:var(--export)">-</span>
+        <span class="big" id="savedNet">-</span>
         <span class="sub" id="savedSub">-</span>
       </div>
       <div class="stat">
@@ -232,6 +234,29 @@ canvas { width: 100%; height: 100%; display: block; }
             <input type="range" id="solarStart" min="0" max="300" step="10" value="50" aria-label="Export level that starts solar charging, in watts">
           </div>
         </div>
+        <details class="advanced">
+          <summary>Advanced</summary>
+          <div class="nested">
+            <div class="slider">
+              <div class="slider-row"><span>Import to leave while covering the house</span><b id="importBufVal">15 W</b></div>
+              <input type="range" id="importBuf" min="0" max="50" step="1" value="15" aria-label="Import to leave while covering the house, in watts">
+              <span class="hint">Lower uses more battery, but a sudden drop in load is more likely to export.</span>
+            </div>
+            <div class="slider green">
+              <div class="slider-row"><span>Export to aim for with plenty spare</span><b id="plentyExportVal">5 W</b></div>
+              <input type="range" id="plentyExport" min="0" max="50" step="1" value="5" aria-label="Export to aim for with plenty spare, in watts">
+            </div>
+            <div class="slider green">
+              <div class="slider-row"><span>Export to leave while charging from solar</span><b id="solarExportVal">5 W</b></div>
+              <input type="range" id="solarExport" min="0" max="50" step="1" value="5" aria-label="Export to leave while charging from solar, in watts">
+            </div>
+            <div class="slider">
+              <div class="slider-row"><span>Kept back before counting as plenty</span><b id="spareMarginVal">200 Wh</b></div>
+              <input type="range" id="spareMargin" min="0" max="1000" step="50" value="200" aria-label="Charge kept back before counting as plenty, in watt-hours">
+              <span class="hint">On top of the busiest recent evening.</span>
+            </div>
+          </div>
+        </details>
         <div class="warn" id="liveWarn" hidden>Puts the battery in third-party mode, so the Anker schedule stops until you switch back to Observe.</div>
         <button class="btn" id="apply" disabled>No changes</button>
       </section>
@@ -312,8 +337,10 @@ canvas { width: 100%; height: 100%; display: block; }
 
 <script>
 const $ = id => document.getElementById(id);
-const KEYS = ['mode', 'maxW', 'solarCharge', 'startExportW', 'maxChargeW'];
-let server = { mode: 'Observe', maxW: 300, solarCharge: true, startExportW: 50, maxChargeW: 800 };
+const KEYS = ['mode', 'maxW', 'solarCharge', 'startExportW', 'maxChargeW', 'importBufferW', 'plentyExportW', 'solarExportW', 'spareMarginWh'];
+let server = { mode: 'Observe', maxW: 300, solarCharge: true, startExportW: 50, maxChargeW: 800, importBufferW: 15, plentyExportW: 5, solarExportW: 5, spareMarginWh: 200 };
+// Advanced sliders: setting, slider id, unit.
+const ADVANCED = [['importBufferW', 'importBuf', 'W'], ['plentyExportW', 'plentyExport', 'W'], ['solarExportW', 'solarExport', 'W'], ['spareMarginWh', 'spareMargin', 'Wh']];
 let draft = { ...server };
 // Missing fields keep their previous value so an older service never shows "undefined".
 const pick = s => Object.fromEntries(KEYS.map(k => [k, s[k] ?? server[k]]));
@@ -326,7 +353,7 @@ const hm = d => new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minut
 const pounds = p => '£' + (p / 100).toFixed(2);
 const kwh = v => v.toFixed(v >= 10 ? 1 : 2);
 
-function setValue(el, text, unit) { el.innerHTML = `${text}<span class="unit">${unit}</span>`; }
+function setValue(el, text, unit) { el.innerHTML = `${text}<span class="unit${unit === '%' ? ' pct' : ''}">${unit}</span>`; }
 
 // Turns the controller's reason into something readable at a glance; the full text stays in the tooltip.
 function describe(reason) {
@@ -366,6 +393,10 @@ function renderDraft() {
   $('solarBox').hidden = !draft.solarCharge;
   $('solarStart').value = draft.startExportW;
   $('solarStartVal').textContent = draft.startExportW + ' W';
+  for (const [key, id, unit] of ADVANCED) {
+    $(id).value = draft[key];
+    $(id + 'Val').textContent = `${draft[key]} ${unit}`;
+  }
   const changed = !same(draft, server);
   const goingLive = draft.mode === 'Live' && server.mode !== 'Live';
   $('liveWarn').hidden = !goingLive;
@@ -381,6 +412,7 @@ $('cap').oninput = e => { draft.maxW = +e.target.value; renderDraft(); };
 $('chargeCap').oninput = e => { draft.maxChargeW = +e.target.value; renderDraft(); };
 $('solar').onchange = e => { draft.solarCharge = e.target.checked; renderDraft(); };
 $('solarStart').oninput = e => { draft.startExportW = +e.target.value; renderDraft(); };
+for (const [key, id] of ADVANCED) $(id).oninput = e => { draft[key] = +e.target.value; renderDraft(); };
 $('apply').onclick = async () => {
   $('apply').disabled = true;
   const r = await fetch('/api/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft) });
@@ -426,7 +458,7 @@ async function refreshStatus() {
     $('powerBox').hidden = !s.canShutDown;
     if (s.hardMaxW) $('cap').max = s.hardMaxW;
     const live = s.mode === 'Live';
-    $('modePill').textContent = live ? `LIVE · ${s.maxW} W` : 'OBSERVE';
+    $('modePill').textContent = live ? `Live · ${s.maxW} W` : 'Observe';
     $('modePill').className = 'pill ' + (live ? 'live' : 'obs');
     $('modePill').title = live ? 'Writing to the battery' : 'Reading only, nothing is written to the battery';
     $('doingLabel').textContent = live ? 'Doing' : 'Would do';
@@ -446,7 +478,6 @@ async function refreshStatus() {
     if (l.grid) {
       const d = l.grid.demandW;
       setValue($('grid'), fmt(Math.abs(d)), 'W');
-      $('grid').style.color = d < 0 ? css('--export') : css('--import');
       $('gridSub').textContent = d < 0 ? 'exporting' : 'importing';
       // Age at fetch is what the controller acted on; it only drifts because fetches are 40 s apart.
       const fetchedAge = Math.round((new Date(l.at) - new Date(l.grid.readAt)) / 1000);
@@ -460,7 +491,6 @@ async function refreshStatus() {
     if (l.battery) {
       const cells = l.battery.batteryPowerW;
       setValue($('ac'), fmt(Math.abs(l.battery.acOutputW)), 'W');
-      $('ac').style.color = cells < 0 ? css('--export') : css('--battery');
       const state = cells < 0 ? 'charging' : cells > 0 ? 'discharging' : 'idle';
       $('acSub').textContent = state + (live && l.written ? ` · aiming for ${t < 0 ? 'charge ' : ''}${fmt(Math.abs(t))} W` : '');
       setValue($('soc'), l.battery.socPercent, '%');
@@ -569,7 +599,7 @@ function drawBurn() {
   const y = v => pad.t + (hi - v) / Math.max(1, hi - lo) * (h - pad.t - pad.b);
   burnGeom = { pad, w, t0, t1, series };
 
-  g.font = '10px ' + css('--num');
+  g.font = '10px ' + css('--ui');
   g.strokeStyle = css('--line'); g.fillStyle = css('--muted'); g.lineWidth = 1;
   const stepPct = hi - lo > 40 ? 20 : 10;
   for (let v = lo; v <= hi; v += stepPct) {
@@ -741,7 +771,7 @@ function renderUsage(u) {
   const b = u.battery;
   if (b) {
     $('savedNet').textContent = pounds(b.netSavedP);
-    $('savedNet').style.color = b.netSavedP >= 0 ? css('--export') : css('--import');
+    $('savedNet').style.color = b.netSavedP >= 0 ? '' : css('--import');
     $('savedNet').title = `Shifting ${pounds(b.shiftSavedP)}, solar charging ${pounds(b.solarSavedP)}, over the ${b.coveredHours.toFixed(1)} h the app ran today`;
     $('savedSub').textContent = `${kwh(b.displacedKwh)} kWh used instead of the grid` +
       (b.wastedKwh > 0.005 ? ` · ${pounds(b.wastedP)} lost to export` : '');
@@ -774,7 +804,7 @@ function drawChart() {
   const x = t => pad.l + (t - t0) / (t1 - t0) * (w - pad.l - pad.r);
   const y = v => pad.t + (hi - v) / (hi - lo) * (h - pad.t - pad.b);
 
-  g.font = '11px ' + css('--num');
+  g.font = '11px ' + css('--ui');
   g.fillStyle = css('--muted');
   g.strokeStyle = css('--line');
   g.lineWidth = 1;

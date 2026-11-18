@@ -10,7 +10,7 @@
 
 Got an Anker SOLIX Solarbank 4 E5000 Pro that isn't hardwired yet? Then you'll know Anker's own meter and Smart Mode are off the table, and the battery just runs a fixed schedule. Set the schedule too high and your cheap overnight charge goes out to the grid for nothing. Set it too low and you're paying the peak rate while a full battery sits there.
 
-I didn't fancy either, so I built this. It reads my **Octopus Energy Home Mini** every 40 seconds and sets the battery's output to match what the house is drawing, all over the local network. It's been running my house from a Raspberry Pi Zero 2 W.
+I didn't fancy either, so I built this. It reads my **Octopus Energy Home Mini** every 45 seconds, or every 25 when the house is busy, and sets the battery's output to match what the house is drawing, all over the local network. It's been running my house from a Raspberry Pi Zero 2 W.
 
 [How to set it up](docs/SETUP.md)
 

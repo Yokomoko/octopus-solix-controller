@@ -21,8 +21,10 @@ public sealed record EvStatus(IReadOnlyList<Octopus.EvSlot> Slots, DateTimeOffse
 /// <summary>Latest view of joined Octopus events for the dashboard.</summary>
 public sealed record EventStatus(IReadOnlyList<Octopus.OctopusEvent> Upcoming, DateTimeOffset? CheckedAt, OctopusEventKind? Active, string? Error);
 
-/// <summary>Settings changed from the dashboard.</summary>
-public sealed record RuntimeSettings(ControlMode Mode, int MaxW, bool SolarCharge, int StartExportW, int MaxChargeW);
+/// <summary>Settings changed from the dashboard. The advanced ones fall back to config when not set.</summary>
+public sealed record RuntimeSettings(
+    ControlMode Mode, int MaxW, bool SolarCharge, int StartExportW, int MaxChargeW,
+    int? ImportBufferW = null, int? PlentyExportW = null, int? SolarExportW = null, int? SpareMarginWh = null);
 
 /// <summary>
 /// Dashboard settings plus the latest cycle for display. Settings are saved to the data folder so a
@@ -111,12 +113,23 @@ public sealed class RuntimeControl
     {
         var s = Current;
         var copy = configured.With(s.Mode, s.MaxW);
+        copy.ImportBufferW = s.ImportBufferW ?? configured.ImportBufferW;
+        var spare = configured.Spare;
+        copy.Spare = new SpareOptions
+        {
+            Enabled = spare.Enabled,
+            ExportTargetW = s.PlentyExportW ?? spare.ExportTargetW,
+            FloorPercent = spare.FloorPercent,
+            MarginWh = s.SpareMarginWh ?? spare.MarginWh,
+            HistoryDays = spare.HistoryDays,
+            CarW = spare.CarW,
+        };
         var solar = configured.SolarCharge;
         copy.SolarCharge = new SolarChargeOptions
         {
             Enabled = s.SolarCharge,
             StartExportW = s.StartExportW,
-            TargetExportW = solar.TargetExportW,
+            TargetExportW = s.SolarExportW ?? solar.TargetExportW,
             MaxChargeW = s.MaxChargeW,
             MinChargeW = solar.MinChargeW,
             SocCeilingPercent = solar.SocCeilingPercent,
@@ -166,5 +179,9 @@ public sealed class RuntimeControl
             MaxW = Math.Clamp(s.MaxW, 0, _hardMaxW),
             StartExportW = Math.Clamp(s.StartExportW, 0, 500),
             MaxChargeW = Math.Clamp(s.MaxChargeW, 0, HardMaxChargeW),
+            ImportBufferW = s.ImportBufferW is { } b ? Math.Clamp(b, 0, 100) : null,
+            PlentyExportW = s.PlentyExportW is { } p ? Math.Clamp(p, 0, 100) : null,
+            SolarExportW = s.SolarExportW is { } x ? Math.Clamp(x, 0, 100) : null,
+            SpareMarginWh = s.SpareMarginWh is { } m ? Math.Clamp(m, 0, 2000) : null,
         };
 }

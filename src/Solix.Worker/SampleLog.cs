@@ -41,6 +41,7 @@ public sealed class SampleLog : IDisposable
                 error TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_samples_at ON samples(at);
+            CREATE TABLE IF NOT EXISTS meter_calls (at TEXT NOT NULL);
             """;
         cmd.ExecuteNonQuery();
     }
@@ -134,6 +135,33 @@ public sealed class SampleLog : IDisposable
             using var reader = cmd.ExecuteReader();
             var rows = new List<(DateTimeOffset, int)>();
             while (reader.Read()) rows.Add((DateTimeOffset.Parse(reader.GetString(0)), reader.GetInt32(1)));
+            return rows;
+        }
+    }
+
+    /// <summary>Notes one Home Mini read, so the hourly allowance survives a restart.</summary>
+    public void RecordMeterCall(DateTimeOffset at)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = "INSERT INTO meter_calls VALUES ($at); DELETE FROM meter_calls WHERE at < $old";
+            cmd.Parameters.AddWithValue("$at", at.UtcDateTime.ToString("O"));
+            cmd.Parameters.AddWithValue("$old", at.AddHours(-2).UtcDateTime.ToString("O"));
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public IReadOnlyList<DateTimeOffset> MeterCallsSince(DateTimeOffset from)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = "SELECT at FROM meter_calls WHERE at >= $from ORDER BY at";
+            cmd.Parameters.AddWithValue("$from", from.UtcDateTime.ToString("O"));
+            using var reader = cmd.ExecuteReader();
+            var rows = new List<DateTimeOffset>();
+            while (reader.Read()) rows.Add(DateTimeOffset.Parse(reader.GetString(0)));
             return rows;
         }
     }

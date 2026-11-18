@@ -39,6 +39,7 @@ public sealed class ControlWorker(
     private DateTimeOffset _rateLimitedUntil = DateTimeOffset.MinValue;
     private readonly List<(DateTimeOffset At, int OutputW)> _outputLog = [];
     private readonly List<(DateTimeOffset At, int LoadW)> _loadLog = [];
+    private int? _lastTargetW;
     private IReadOnlyList<OctopusEvent> _events = [];
     private DateTimeOffset? _eventsFetchedAt;
     private DateTimeOffset _nextEventsPoll = DateTimeOffset.MinValue;
@@ -95,7 +96,11 @@ public sealed class ControlWorker(
                 GuardMode();
             }
 
-            await _wake.WaitAsync(TimeSpan.FromSeconds(Math.Max(1, opts.ModeGuardSeconds)), ct);
+            // Wake for the mode guard, or sooner if the next meter read is due first.
+            var wait = TimeSpan.FromSeconds(Math.Max(1, opts.ModeGuardSeconds));
+            var untilPoll = _nextPoll - DateTimeOffset.UtcNow;
+            if (untilPoll < wait) wait = untilPoll > TimeSpan.FromSeconds(1) ? untilPoll : TimeSpan.FromSeconds(1);
+            await _wake.WaitAsync(wait, ct);
         }
     }
 
@@ -177,12 +182,20 @@ public sealed class ControlWorker(
             }
         }
 
+        // A rate-limit backoff has already set the next poll.
+        if (fetchOctopus && now >= _rateLimitedUntil)
+        {
+            var urgency = PollPacing.Urgency(_loadLog, _lastTargetW, decision.TargetW, CyclingLoad.IsCycling(_loadLog));
+            _nextPoll = now + PollPacing.Next(opts, octopus.MeterCallsInLastHour(), now, urgency);
+        }
+        _lastTargetW = decision.TargetW;
+
         var error = errors.Count > 0 ? string.Join("; ", errors) : null;
         log.Write(now, opts.Mode, _grid, state, decision, written, error);
         runtime.Latest = new Snapshot(now, opts.Mode, opts.MaxW, _grid, state, decision, written, error);
 
         logger.LogInformation(
-            "{Mode} grid {Demand} W (age {Age}s) | AC out {Ac} W, SOC {Soc}%, mode {BMode} | target {Target} W {Written} ({Reason})",
+            "{Mode} grid {Demand} W (age {Age}s) | AC out {Ac} W, SOC {Soc}%, mode {BMode} | target {Target} W {Written} ({Reason}) | next read {Next}s, {Calls} this hour",
             opts.Mode,
             _grid?.DemandW.ToString() ?? "?",
             _grid is null ? "?" : ((int)(now - _grid.ReadAt).TotalSeconds).ToString(),
@@ -191,7 +204,9 @@ public sealed class ControlWorker(
             state?.Mode.ToString() ?? "?",
             decision.TargetW,
             written ? "written" : "not written",
-            decision.Reason);
+            decision.Reason,
+            (int)Math.Max(0, (_nextPoll - now).TotalSeconds),
+            octopus.MeterCallsInLastHour().Count);
     }
 
     private void LogOutput(DateTimeOffset at, BatteryState state)
@@ -201,7 +216,6 @@ public sealed class ControlWorker(
         _outputLog.RemoveAll(x => at - x.At > TimeSpan.FromMinutes(10));
     }
 
-    // Battery output when the grid reading was taken; null if the reading is older than the log.
     // House load at each meter reading, for spotting an appliance cycling on and off.
     private void LogLoad()
     {
@@ -210,6 +224,7 @@ public sealed class ControlWorker(
         _loadLog.RemoveAll(x => _grid.ReadAt - x.At > CyclingLoad.Window);
     }
 
+    // Battery output when the grid reading was taken; null if the reading is older than the log.
     private int? OutputAt(DateTimeOffset? readAt)
     {
         if (readAt is null) return null;

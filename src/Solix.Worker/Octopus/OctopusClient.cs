@@ -26,7 +26,7 @@ public sealed record OctopusEvent(DateTimeOffset Start, DateTimeOffset End, Octo
 public sealed class OctopusRateLimitedException(string message) : Exception(message);
 
 /// <summary>Reads live Home Mini telemetry from the Octopus Kraken GraphQL API.</summary>
-public sealed class OctopusClient(HttpClient http, IOptions<OctopusOptions> options, ILogger<OctopusClient> logger)
+public sealed class OctopusClient(HttpClient http, IOptions<OctopusOptions> options, SampleLog log, ILogger<OctopusClient> logger)
 {
     private readonly OctopusOptions _options = options.Value;
     private string? _token;
@@ -34,9 +34,13 @@ public sealed class OctopusClient(HttpClient http, IOptions<OctopusOptions> opti
     private string? _deviceId;
     private string? _evDeviceId;
 
+    /// <summary>Home Mini reads in the last hour, from this run and earlier ones. Octopus allows 125.</summary>
+    public IReadOnlyList<DateTimeOffset> MeterCallsInLastHour() => log.MeterCallsSince(DateTimeOffset.UtcNow.AddHours(-1));
+
     public async Task<GridReading?> GetLatestAsync(CancellationToken ct)
     {
         var deviceId = await GetDeviceIdAsync(ct);
+        log.RecordMeterCall(DateTimeOffset.UtcNow);
         var data = await QueryAsync(
             "query($id:String!){ smartMeterTelemetry(deviceId:$id){ readAt demand } }",
             new JsonObject { ["id"] = deviceId }, ct);
@@ -119,6 +123,7 @@ public sealed class OctopusClient(HttpClient http, IOptions<OctopusOptions> opti
         var deviceId = await GetDeviceIdAsync(ct);
 
         // Start half an hour early so the first half-hour has a previous export total to difference against.
+        log.RecordMeterCall(DateTimeOffset.UtcNow);
         var data = await QueryAsync(
             "query($id:String!,$s:DateTime!,$e:DateTime!){ smartMeterTelemetry(deviceId:$id, grouping:HALF_HOURLY, start:$s, end:$e){ readAt consumptionDelta export } }",
             new JsonObject { ["id"] = deviceId, ["s"] = from.AddMinutes(-30).ToString("o"), ["e"] = to.ToString("o") }, ct);

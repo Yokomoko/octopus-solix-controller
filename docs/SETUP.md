@@ -57,7 +57,9 @@ Everything lives in `src/Solix.Worker/appsettings.json` under `Controller`. The 
 | `MaxW` | 300 | Discharge cap |
 | `HardMaxW` | 800 | Highest cap the dashboard allows. Mine tops out at 810 W on a plug-in unit, so I set it to that |
 | `ImportBufferW` | 15 | Import it aims to leave while discharging |
-| `PollSeconds` | 40 | How often it reads the Home Mini. Octopus allows 125 an hour for this, so don't go much below 35 |
+| `PollSeconds` | 45 | How often it reads the Home Mini when things are steady. Octopus allows 125 reads an hour |
+| `FastPollSeconds` | 25 | Quickest read, after a big change (300 W of house load or 200 W of setpoint). Smaller changes from 150 W get a read somewhere between this and `PollSeconds`, using spare budget |
+| `MeterCallsPerHour` | 120 | Most Home Mini reads in any hour, counting the usage refresh too. Octopus allows 125. The count is kept in the database, so a restart doesn't reset it |
 | `SocFloorPercent` | 5 | Stops discharging at this SOC. Covering the house is the only thing allowed below the 10% planning floor |
 | `BatteryCapacityWh` | 5000 | Usable capacity, used to turn SOC into energy |
 | `Spare:ExportTargetW` | 5 | When there's clearly more charge than the evening needs, it aims for this tiny export instead of `ImportBufferW` |

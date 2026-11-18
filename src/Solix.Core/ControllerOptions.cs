@@ -12,8 +12,17 @@ public enum ControlMode
 public sealed class ControllerOptions
 {
     public ControlMode Mode { get; set; } = ControlMode.Observe;
-    // smartMeterTelemetry allows 125 calls an hour; 40s uses 90, leaving room for the Octopus app.
-    public int PollSeconds { get; set; } = 40;
+    // smartMeterTelemetry allows 125 calls an hour; 45s uses 80, leaving the rest for quick reads.
+    public int PollSeconds { get; set; } = 45;
+
+    /// <summary>Quickest meter read, after a big change; smaller changes scale between this and PollSeconds.</summary>
+    public int FastPollSeconds { get; set; } = 25;
+
+    /// <summary>Most Home Mini reads in any hour, the usage refresh included. Octopus allows 125.</summary>
+    public int MeterCallsPerHour { get; set; } = 120;
+
+    /// <summary>Calls kept back from quick reads so normal ones always have room.</summary>
+    public int FastPollReserve { get; set; } = 6;
     public int ModeGuardSeconds { get; set; } = 10;
     public int StaleAfterSeconds { get; set; } = 120;
     public int ImportBufferW { get; set; } = 15;
